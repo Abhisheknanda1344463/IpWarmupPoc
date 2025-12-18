@@ -756,15 +756,15 @@
             <div class="stat-item">
               <div class="stat-label">SPF</div>
               <div class="stat-value">
-                <span class="stat-icon ${emailSec.spf_valid ? 'success' : 'error'}">${emailSec.spf_valid ? '✓' : '✗'}</span>
-                ${emailSec.spf_valid ? 'Valid' : 'Missing'}
+                <span class="stat-icon ${emailSec.has_spf ? 'success' : 'error'}">${emailSec.has_spf ? '✓' : '✗'}</span>
+                ${emailSec.has_spf ? 'Valid' : 'Missing'}
               </div>
             </div>
             <div class="stat-item">
               <div class="stat-label">DMARC</div>
               <div class="stat-value">
-                <span class="stat-icon ${emailSec.dmarc_valid ? 'success' : 'error'}">${emailSec.dmarc_valid ? '✓' : '✗'}</span>
-                ${emailSec.dmarc_valid ? 'Valid' : 'Missing'}
+                <span class="stat-icon ${emailSec.has_dmarc ? 'success' : 'error'}">${emailSec.has_dmarc ? '✓' : '✗'}</span>
+                ${emailSec.has_dmarc ? 'Valid' : 'Missing'}
               </div>
             </div>
           </div>

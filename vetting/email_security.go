@@ -18,11 +18,11 @@ type EmailSecurity struct {
 
 // DNS servers to try (in order)
 var dnsServers = []string{
-	"8.8.8.8:53",        // Google Primary
-	"8.8.4.4:53",        // Google Secondary
-	"1.1.1.1:53",        // Cloudflare Primary
-	"1.0.0.1:53",        // Cloudflare Secondary
-	"9.9.9.9:53",        // Quad9
+	"8.8.8.8:53", // Google Primary
+	"8.8.4.4:53", // Google Secondary
+	"1.1.1.1:53", // Cloudflare Primary
+	"1.0.0.1:53", // Cloudflare Secondary
+	"9.9.9.9:53", // Quad9
 }
 
 // getResolverWithDNS creates a resolver with a specific DNS server
@@ -41,7 +41,9 @@ func getResolverWithDNS(dnsServer string) *net.Resolver {
 // lookupTXTWithRetry tries multiple DNS servers
 func lookupTXTWithRetry(domain string) ([]string, error) {
 	var lastErr error
+	var allRecords []string
 
+	// Collect TXT records from ALL DNS servers (domains with many TXT records may be truncated)
 	for _, dns := range dnsServers {
 		resolver := getResolverWithDNS(dns)
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -50,20 +52,49 @@ func lookupTXTWithRetry(domain string) ([]string, error) {
 		cancel()
 
 		if err == nil && len(txts) > 0 {
-			log.Printf("[DNS] TXT lookup for %s succeeded via %s", domain, dns)
-			return txts, nil
+			log.Printf("[DNS] TXT lookup for %s via %s returned %d records", domain, dns, len(txts))
+			// Merge records (avoid duplicates)
+			for _, t := range txts {
+				found := false
+				for _, existing := range allRecords {
+					if existing == t {
+						found = true
+						break
+					}
+				}
+				if !found {
+					allRecords = append(allRecords, t)
+				}
+			}
+		} else if err != nil {
+			lastErr = err
+			log.Printf("[DNS] TXT lookup for %s failed via %s: %v", domain, dns, err)
 		}
-		lastErr = err
-		log.Printf("[DNS] TXT lookup for %s failed via %s: %v", domain, dns, err)
 	}
 
-	// Also try system resolver as fallback
+	// Also try system resolver
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	txts, err := net.DefaultResolver.LookupTXT(ctx, domain)
 	if err == nil && len(txts) > 0 {
-		log.Printf("[DNS] TXT lookup for %s succeeded via system resolver", domain)
-		return txts, nil
+		log.Printf("[DNS] TXT lookup for %s via system resolver returned %d records", domain, len(txts))
+		for _, t := range txts {
+			found := false
+			for _, existing := range allRecords {
+				if existing == t {
+					found = true
+					break
+				}
+			}
+			if !found {
+				allRecords = append(allRecords, t)
+			}
+		}
+	}
+
+	if len(allRecords) > 0 {
+		log.Printf("[DNS] Total unique TXT records for %s: %d", domain, len(allRecords))
+		return allRecords, nil
 	}
 
 	return nil, lastErr
@@ -124,6 +155,7 @@ func GetEmailSecurity(domain string) EmailSecurity {
 	if err != nil {
 		log.Printf("[EmailSecurity] TXT lookup failed for %s after all retries: %v", domain, err)
 	}
+	log.Printf("[EmailSecurity] Checking %d TXT records for SPF in %s", len(txts), domain)
 	for _, t := range txts {
 		lower := strings.ToLower(t)
 		if strings.HasPrefix(lower, "v=spf1") || strings.Contains(lower, "v=spf1") {
@@ -131,6 +163,17 @@ func GetEmailSecurity(domain string) EmailSecurity {
 			sec.SPFRecord = t
 			log.Printf("[EmailSecurity] ✓ SPF found for %s: %s", domain, truncate(t, 50))
 			break
+		}
+	}
+
+	// If SPF not found in merged results, try each DNS server directly
+	if !sec.HasSPF {
+		log.Printf("[EmailSecurity] SPF not found in merged TXT, trying individual DNS servers...")
+		spfRecord := findSPFRecord(domain)
+		if spfRecord != "" {
+			sec.HasSPF = true
+			sec.SPFRecord = spfRecord
+			log.Printf("[EmailSecurity] ✓ SPF found via direct search: %s", truncate(spfRecord, 50))
 		}
 	}
 
@@ -157,6 +200,43 @@ func GetEmailSecurity(domain string) EmailSecurity {
 		domain, sec.HasValidMX, sec.HasSPF, sec.HasDMARC)
 
 	return sec
+}
+
+// findSPFRecord tries all DNS servers to specifically find SPF record
+// This is a fallback when merged TXT records don't contain SPF due to truncation
+func findSPFRecord(domain string) string {
+	allServers := append(dnsServers, "") // Empty string = system resolver
+
+	for _, dns := range allServers {
+		var resolver *net.Resolver
+		if dns == "" {
+			resolver = net.DefaultResolver
+		} else {
+			resolver = getResolverWithDNS(dns)
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		txts, err := resolver.LookupTXT(ctx, domain)
+		cancel()
+
+		if err != nil {
+			continue
+		}
+
+		for _, t := range txts {
+			lower := strings.ToLower(t)
+			if strings.HasPrefix(lower, "v=spf1") || strings.Contains(lower, "v=spf1") {
+				serverName := dns
+				if dns == "" {
+					serverName = "system"
+				}
+				log.Printf("[DNS] SPF found via %s for %s", serverName, domain)
+				return t
+			}
+		}
+	}
+
+	return ""
 }
 
 // truncate helper for logging
