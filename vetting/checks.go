@@ -1,0 +1,348 @@
+package vetting
+
+import (
+	"crypto/tls"
+	"encoding/json"
+	"fmt"
+	"net"
+	"net/http"
+	"os"
+	"strings"
+	"time"
+
+	whois "github.com/likexian/whois"
+	parser "github.com/likexian/whois-parser"
+)
+
+//
+// BASIC CHECKS
+//
+
+func LookupIP(domain string) string {
+	host := domain
+	if strings.HasPrefix(host, "http://") || strings.HasPrefix(host, "https://") {
+		host = strings.SplitN(host, "//", 2)[1]
+	}
+	host = strings.Split(host, "/")[0]
+
+	ips, err := net.LookupIP(host)
+	if err != nil || len(ips) == 0 {
+		return ""
+	}
+	for _, ip := range ips {
+		if ip.To4() != nil {
+			return ip.String()
+		}
+	}
+	return ips[0].String()
+}
+
+func ProbeHTTPS(domain string) (bool, int) {
+	d := &net.Dialer{Timeout: 5 * time.Second}
+	conn, err := tls.DialWithDialer(d, "tcp", domain+":443", &tls.Config{ServerName: domain})
+	if err != nil {
+		return false, 0
+	}
+	defer conn.Close()
+
+	certs := conn.ConnectionState().PeerCertificates
+	if len(certs) == 0 {
+		return false, 0
+	}
+
+	days := int(time.Until(certs[0].NotAfter).Hours() / 24)
+	return true, days
+}
+
+//
+// WHOIS LOOKUP
+//
+
+func WhoisAgeDays(domain string) (int, string, string) {
+	raw, err := whois.Whois(domain)
+	if err != nil {
+		return 0, "", ""
+	}
+
+	p, _ := parser.Parse(raw)
+
+	createdStr := strings.TrimSpace(p.Domain.CreatedDate)
+	updatedStr := strings.TrimSpace(p.Domain.UpdatedDate)
+
+	layouts := []string{
+		time.RFC3339,
+		"2006-01-02 15:04:05",
+		"2006-01-02",
+		"02-Jan-2006",
+		"2006.01.02",
+	}
+
+	var created, updated time.Time
+
+	for _, l := range layouts {
+		t, err := time.Parse(l, createdStr)
+		if err == nil {
+			created = t
+			break
+		}
+	}
+
+	for _, l := range layouts {
+		t, err := time.Parse(l, updatedStr)
+		if err == nil {
+			updated = t
+			break
+		}
+	}
+
+	if created.IsZero() {
+		return 0, "", ""
+	}
+
+	ageDays := int(time.Since(created).Hours() / 24)
+	return ageDays, created.Format("02/01/2006"), updated.Format("02/01/2006")
+}
+
+//
+// BLACKLIST FEEDS
+//
+
+type BlacklistEntry struct {
+	Source string `json:"source"`
+	Listed bool   `json:"listed"`
+	Info   string `json:"info,omitempty"`
+	Reason string `json:"reason,omitempty"`
+}
+
+type MXBlacklistResult struct {
+	MxRep int              `json:"mx_rep"`
+	Lists []BlacklistEntry `json:"lists"`
+}
+
+var domainRBLs = []string{
+	"multi.surbl.org",
+	"uribl.spameatingmonkey.net",
+	"uribl.blacklist.woody.ch",
+	"ivmuri.invaluement.com",
+	"ubl.unsubscore.com",
+}
+
+func checkDomainRBL(domain string) []BlacklistEntry {
+	var results []BlacklistEntry
+
+	for _, rbl := range domainRBLs {
+		query := domain + "." + rbl
+		_, err := net.LookupHost(query)
+		if err == nil {
+			results = append(results, BlacklistEntry{
+				Source: rbl,
+				Listed: true,
+			})
+		}
+	}
+
+	return results
+}
+
+var ipRBLs = []string{
+	"zen.spamhaus.org",
+	"bl.mailspike.net",
+	"z.mailspike.net",
+	"hostkarma.junkemailfilter.com",
+	"bl.spamcop.net",
+	"psbl.surriel.com",
+	"dnsbl.sorbs.net",
+	"dnsbl-1.uceprotect.net",
+}
+
+func reverseIP(ip string) string {
+	parts := strings.Split(ip, ".")
+	if len(parts) != 4 {
+		return ""
+	}
+	return parts[3] + "." + parts[2] + "." + parts[1] + "." + parts[0]
+}
+
+func checkIPRBL(domain string) []BlacklistEntry {
+	ip := LookupIP(domain)
+	if ip == "" {
+		return nil
+	}
+	rev := reverseIP(ip)
+
+	var results []BlacklistEntry
+
+	for _, rbl := range ipRBLs {
+		query := rev + "." + rbl
+		_, err := net.LookupHost(query)
+		if err == nil {
+			results = append(results, BlacklistEntry{
+				Source: rbl,
+				Listed: true,
+			})
+		}
+	}
+
+	return results
+}
+
+func FetchAdditionalAbuseFeeds(domain string) []BlacklistEntry {
+	var combined []BlacklistEntry
+	combined = append(combined, checkDomainRBL(domain)...)
+	combined = append(combined, checkIPRBL(domain)...)
+	return combined
+}
+
+//
+// MXTOOLBOX BLACKLIST LOOKUP
+//
+
+func FetchMXToolboxBlacklist(domain string) (*MXBlacklistResult, error) {
+	apiKey := os.Getenv("MXTOOLBOX_API_KEY")
+	url := fmt.Sprintf("https://mxtoolbox.com/api/v1/Lookup?command=blacklist&argument=%s", domain)
+
+	req, _ := http.NewRequest("GET", url, nil)
+	req.Header.Set("Authorization", apiKey)
+	req.Header.Set("accept", "application/json")
+
+	client := &http.Client{Timeout: 8 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var raw struct {
+		MxRep  int `json:"MxRep"`
+		Failed []struct {
+			Name        string `json:"Name"`
+			Info        string `json:"Info"`
+			Description string `json:"BlacklistReasonDescription"`
+		} `json:"Failed"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+		return nil, err
+	}
+
+	var entries []BlacklistEntry
+	for _, f := range raw.Failed {
+		entries = append(entries, BlacklistEntry{
+			Source: f.Name,
+			Listed: true,
+			Info:   f.Info,
+			Reason: f.Description,
+		})
+	}
+
+	return &MXBlacklistResult{
+		MxRep: raw.MxRep,
+		Lists: entries,
+	}, nil
+}
+
+func convertMXToBlacklist(mx *MXBlacklistResult) []BlacklistEntry {
+	var list []BlacklistEntry
+	for _, f := range mx.Lists {
+		list = append(list, BlacklistEntry{
+			Source: f.Source,
+			Listed: true,
+			Info:   f.Info,
+			Reason: f.Reason,
+		})
+	}
+	return list
+}
+
+//
+// TLS + EXPIRY
+//
+
+func GetExpirationDate(domain string) (int, string) {
+	conn, err := tls.Dial("tcp", domain+":443", &tls.Config{ServerName: domain})
+	if err != nil {
+		return 0, ""
+	}
+	defer conn.Close()
+
+	expiry := conn.ConnectionState().PeerCertificates[0].NotAfter
+	return int(time.Until(expiry).Hours() / 24), expiry.Format("02/01/2006")
+}
+
+func DomainExpiryDate(domain string) string {
+	raw, err := whois.Whois(domain)
+	if err != nil {
+		return ""
+	}
+
+	p, _ := parser.Parse(raw)
+	dateStr := strings.TrimSpace(p.Domain.ExpirationDate)
+
+	layouts := []string{
+		time.RFC3339,
+		"2006-01-02 15:04:05",
+		"2006-01-02",
+		"02-Jan-2006",
+	}
+
+	var t time.Time
+
+	for _, l := range layouts {
+		parsed, err := time.Parse(l, dateStr)
+		if err == nil {
+			t = parsed
+			break
+		}
+	}
+
+	if t.IsZero() {
+		return ""
+	}
+
+	return t.Format("02/01/2006")
+}
+
+//
+// GOOGLE SAFE BROWSING
+//
+
+func CheckGoogleReputation(domain string) (bool, string) {
+	apiKey := os.Getenv("GOOGLE_SAFE_BROWSING_KEY")
+	if apiKey == "" {
+		return false, "API key missing"
+	}
+
+	url := "https://safebrowsing.googleapis.com/v4/threatMatches:find?key=" + apiKey
+
+	body := fmt.Sprintf(`
+    {
+      "client": {
+        "clientId": "vetting-service",
+        "clientVersion": "1.0"
+      },
+      "threatInfo": {
+        "threatTypes": ["MALWARE", "SOCIAL_ENGINEERING", "UNWANTED_SOFTWARE"],
+        "platformTypes": ["ANY_PLATFORM"],
+        "threatEntryTypes": ["URL"],
+        "threatEntries": [{"url": "http://%s"}]
+      }
+    }`, domain)
+
+	req, _ := http.NewRequest("POST", url, strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 6 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return false, "API error"
+	}
+	defer resp.Body.Close()
+
+	var result map[string]interface{}
+	json.NewDecoder(resp.Body).Decode(&result)
+
+	if result["matches"] != nil {
+		return true, "Google flagged this domain"
+	}
+	return false, "No threats"
+}

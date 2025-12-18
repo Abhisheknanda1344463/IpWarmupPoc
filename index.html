@@ -1,0 +1,850 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Warmup Assistant | Maropost</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --maropost-primary: #00A69C;
+      --maropost-primary-dark: #008F87;
+      --maropost-primary-light: #E6F7F6;
+      --maropost-secondary: #1E3A5F;
+      --maropost-accent: #FF6B35;
+      --bg-dark: #0F172A;
+      --bg-card: #1E293B;
+      --bg-input: #334155;
+      --text-primary: #F8FAFC;
+      --text-secondary: #94A3B8;
+      --text-muted: #64748B;
+      --border-color: #334155;
+      --success: #10B981;
+      --warning: #F59E0B;
+      --error: #EF4444;
+      --shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.4);
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg-dark);
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 20px;
+      background-image: 
+        radial-gradient(ellipse at top left, rgba(0, 166, 156, 0.15) 0%, transparent 50%),
+        radial-gradient(ellipse at bottom right, rgba(30, 58, 95, 0.2) 0%, transparent 50%);
+    }
+
+    .chat-container {
+      width: 100%;
+      max-width: 480px;
+      height: 90vh;
+      max-height: 750px;
+      background: var(--bg-card);
+      border-radius: 24px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      box-shadow: var(--shadow);
+      border: 1px solid var(--border-color);
+    }
+
+    /* Header */
+    .chat-header {
+      padding: 20px 24px;
+      background: linear-gradient(135deg, var(--maropost-primary) 0%, var(--maropost-primary-dark) 100%);
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .header-logo {
+      width: 44px;
+      height: 44px;
+      background: rgba(255, 255, 255, 0.2);
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 22px;
+      backdrop-filter: blur(10px);
+    }
+
+    .header-info h1 {
+      font-size: 18px;
+      font-weight: 700;
+      color: white;
+      margin-bottom: 2px;
+    }
+
+    .header-info p {
+      font-size: 13px;
+      color: rgba(255, 255, 255, 0.8);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      background: #4ADE80;
+      border-radius: 50%;
+      animation: pulse 2s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.7; transform: scale(1.1); }
+    }
+
+    /* Messages Area */
+    .chat-messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      scroll-behavior: smooth;
+    }
+
+    .chat-messages::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    .chat-messages::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    .chat-messages::-webkit-scrollbar-thumb {
+      background: var(--border-color);
+      border-radius: 3px;
+    }
+
+    /* Message Bubbles */
+    .message {
+      display: flex;
+      gap: 10px;
+      max-width: 90%;
+      animation: slideIn 0.3s ease-out;
+    }
+
+    @keyframes slideIn {
+      from {
+        opacity: 0;
+        transform: translateY(10px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .message.bot {
+      align-self: flex-start;
+    }
+
+    .message.user {
+      align-self: flex-end;
+      flex-direction: row-reverse;
+    }
+
+    .message-avatar {
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      flex-shrink: 0;
+    }
+
+    .message.bot .message-avatar {
+      background: linear-gradient(135deg, var(--maropost-primary), var(--maropost-primary-dark));
+    }
+
+    .message.user .message-avatar {
+      background: var(--maropost-secondary);
+    }
+
+    .message-content {
+      padding: 14px 18px;
+      border-radius: 18px;
+      font-size: 14px;
+      line-height: 1.6;
+    }
+
+    .message.bot .message-content {
+      background: var(--bg-input);
+      color: var(--text-primary);
+      border-bottom-left-radius: 6px;
+    }
+
+    .message.user .message-content {
+      background: linear-gradient(135deg, var(--maropost-primary), var(--maropost-primary-dark));
+      color: white;
+      border-bottom-right-radius: 6px;
+    }
+
+    .message-content strong {
+      color: var(--maropost-primary);
+    }
+
+    .message.user .message-content strong {
+      color: white;
+    }
+
+    /* Typing Indicator */
+    .typing-indicator {
+      display: flex;
+      gap: 10px;
+      align-self: flex-start;
+      max-width: 90%;
+    }
+
+    .typing-avatar {
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, var(--maropost-primary), var(--maropost-primary-dark));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+    }
+
+    .typing-dots {
+      background: var(--bg-input);
+      padding: 16px 20px;
+      border-radius: 18px;
+      border-bottom-left-radius: 6px;
+      display: flex;
+      gap: 5px;
+      align-items: center;
+    }
+
+    .typing-dots span {
+      width: 8px;
+      height: 8px;
+      background: var(--text-muted);
+      border-radius: 50%;
+      animation: bounce 1.4s ease-in-out infinite;
+    }
+
+    .typing-dots span:nth-child(1) { animation-delay: 0s; }
+    .typing-dots span:nth-child(2) { animation-delay: 0.2s; }
+    .typing-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+    @keyframes bounce {
+      0%, 60%, 100% { transform: translateY(0); }
+      30% { transform: translateY(-8px); }
+    }
+
+    /* Domain Card */
+    .domain-card {
+      background: var(--bg-dark);
+      border-radius: 14px;
+      padding: 16px;
+      margin-top: 12px;
+      border: 1px solid var(--border-color);
+    }
+
+    .domain-card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 14px;
+    }
+
+    .domain-name {
+      font-weight: 600;
+      color: var(--text-primary);
+      font-size: 15px;
+    }
+
+    .score-badge {
+      padding: 6px 12px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .score-excellent { background: rgba(16, 185, 129, 0.2); color: var(--success); }
+    .score-good { background: rgba(16, 185, 129, 0.15); color: #34D399; }
+    .score-medium { background: rgba(245, 158, 11, 0.2); color: var(--warning); }
+    .score-poor { background: rgba(239, 68, 68, 0.2); color: var(--error); }
+
+    .domain-stats {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
+    }
+
+    .stat-item {
+      background: var(--bg-card);
+      padding: 10px 12px;
+      border-radius: 10px;
+    }
+
+    .stat-label {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-bottom: 4px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .stat-value {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text-primary);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .stat-icon {
+      font-size: 12px;
+    }
+
+    .stat-icon.success { color: var(--success); }
+    .stat-icon.warning { color: var(--warning); }
+    .stat-icon.error { color: var(--error); }
+
+    /* Quick Actions */
+    .quick-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 14px;
+    }
+
+    .quick-action {
+      padding: 10px 16px;
+      background: var(--bg-input);
+      border: 1px solid var(--border-color);
+      border-radius: 20px;
+      color: var(--text-secondary);
+      font-size: 13px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      font-family: inherit;
+    }
+
+    .quick-action:hover {
+      background: var(--maropost-primary);
+      color: white;
+      border-color: var(--maropost-primary);
+      transform: translateY(-1px);
+    }
+
+    /* Input Area */
+    .chat-input-area {
+      padding: 20px 24px;
+      background: var(--bg-card);
+      border-top: 1px solid var(--border-color);
+    }
+
+    .input-wrapper {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      background: var(--bg-input);
+      border-radius: 16px;
+      padding: 6px 6px 6px 18px;
+      border: 1px solid var(--border-color);
+      transition: all 0.2s ease;
+    }
+
+    .input-wrapper:focus-within {
+      border-color: var(--maropost-primary);
+      box-shadow: 0 0 0 3px rgba(0, 166, 156, 0.15);
+    }
+
+    .chat-input {
+      flex: 1;
+      background: transparent;
+      border: none;
+      outline: none;
+      color: var(--text-primary);
+      font-size: 14px;
+      font-family: inherit;
+      padding: 10px 0;
+    }
+
+    .chat-input::placeholder {
+      color: var(--text-muted);
+    }
+
+    .send-btn {
+      width: 44px;
+      height: 44px;
+      background: linear-gradient(135deg, var(--maropost-primary), var(--maropost-primary-dark));
+      border: none;
+      border-radius: 12px;
+      color: white;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s ease;
+      flex-shrink: 0;
+    }
+
+    .send-btn:hover {
+      transform: scale(1.05);
+      box-shadow: 0 4px 15px rgba(0, 166, 156, 0.4);
+    }
+
+    .send-btn:active {
+      transform: scale(0.95);
+    }
+
+    .send-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .send-btn svg {
+      width: 20px;
+      height: 20px;
+    }
+
+    /* Warmup Plan */
+    .warmup-plan {
+      background: var(--bg-dark);
+      border-radius: 14px;
+      padding: 16px;
+      margin-top: 12px;
+      border: 1px solid var(--border-color);
+    }
+
+    .warmup-plan h4 {
+      color: var(--maropost-primary);
+      font-size: 14px;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .warmup-phase {
+      margin-bottom: 12px;
+    }
+
+    .phase-header {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      margin-bottom: 6px;
+    }
+
+    .phase-days {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .day-chip {
+      padding: 4px 10px;
+      background: var(--bg-card);
+      border-radius: 6px;
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    /* Loading Overlay */
+    .loading-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(15, 23, 42, 0.8);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+      backdrop-filter: blur(4px);
+      opacity: 0;
+      visibility: hidden;
+      transition: all 0.3s ease;
+    }
+
+    .loading-overlay.active {
+      opacity: 1;
+      visibility: visible;
+    }
+
+    .loader {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 20px;
+    }
+
+    .loader-spinner {
+      width: 50px;
+      height: 50px;
+      border: 3px solid var(--border-color);
+      border-top-color: var(--maropost-primary);
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .loader-text {
+      color: var(--text-secondary);
+      font-size: 14px;
+    }
+
+    /* Markdown-like formatting */
+    .message-content p {
+      margin-bottom: 8px;
+    }
+
+    .message-content p:last-child {
+      margin-bottom: 0;
+    }
+
+    .message-content ul {
+      margin: 8px 0;
+      padding-left: 20px;
+    }
+
+    .message-content li {
+      margin-bottom: 4px;
+    }
+
+    /* Responsive */
+    @media (max-width: 520px) {
+      body {
+        padding: 0;
+      }
+      
+      .chat-container {
+        height: 100vh;
+        max-height: none;
+        border-radius: 0;
+      }
+    }
+  </style>
+</head>
+<body>
+  <!-- Loading Overlay -->
+  <div class="loading-overlay" id="loadingOverlay">
+    <div class="loader">
+      <div class="loader-spinner"></div>
+      <div class="loader-text">Connecting to Warmup Assistant...</div>
+    </div>
+  </div>
+
+  <div class="chat-container">
+    <!-- Header -->
+    <div class="chat-header">
+      <div class="header-logo">🚀</div>
+      <div class="header-info">
+        <h1>Warmup Assistant</h1>
+        <p><span class="status-dot"></span> Online • Powered by Maropost</p>
+      </div>
+    </div>
+
+    <!-- Messages -->
+    <div class="chat-messages" id="chatMessages">
+      <!-- Messages will be added here -->
+    </div>
+
+    <!-- Input -->
+    <div class="chat-input-area">
+      <div class="input-wrapper">
+        <input 
+          type="text" 
+          class="chat-input" 
+          id="chatInput" 
+          placeholder="Type your message..."
+          autocomplete="off"
+        >
+        <button class="send-btn" id="sendBtn" onclick="sendMessage()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="22" y1="2" x2="11" y2="13"></line>
+            <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+          </svg>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // State
+    let sessionId = null;
+    let currentStage = 'greeting';
+    let isLoading = false;
+
+    // DOM Elements
+    const chatMessages = document.getElementById('chatMessages');
+    const chatInput = document.getElementById('chatInput');
+    const sendBtn = document.getElementById('sendBtn');
+    const loadingOverlay = document.getElementById('loadingOverlay');
+
+    // Initialize chat
+    async function initChat() {
+      showLoading(true, 'Connecting to Warmup Assistant...');
+      
+      try {
+        const response = await fetch('/chat/start', { method: 'POST' });
+        const data = await response.json();
+        
+        sessionId = data.session_id;
+        currentStage = data.stage;
+        
+        // Add bot greeting
+        addMessage(data.reply, 'bot');
+        
+        // Show quick actions for domain input
+        if (data.waiting_for === 'domain') {
+          showQuickActions(['maropost.com', 'google.com', 'microsoft.com']);
+        }
+      } catch (error) {
+        addMessage('❌ Failed to connect. Please refresh the page.', 'bot');
+      }
+      
+      showLoading(false);
+      chatInput.focus();
+    }
+
+    // Send message
+    async function sendMessage() {
+      const message = chatInput.value.trim();
+      if (!message || isLoading) return;
+
+      // Add user message
+      addMessage(message, 'user');
+      chatInput.value = '';
+      
+      // Show typing indicator
+      showTyping(true);
+      isLoading = true;
+      sendBtn.disabled = true;
+
+      try {
+        const response = await fetch('/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            session_id: sessionId,
+            message: message
+          })
+        });
+
+        const data = await response.json();
+        
+        // Hide typing indicator
+        showTyping(false);
+        
+        // Update stage
+        currentStage = data.stage;
+
+        // Add bot response
+        addMessage(data.reply, 'bot', data);
+
+        // Show domain card if available
+        if (data.domain_data) {
+          addDomainCard(data.domain_data);
+        }
+
+        // Show quick actions based on stage
+        if (data.waiting_for === 'confirmation') {
+          showQuickActions(['Yes, create warmup plan', 'No, thanks']);
+        } else if (data.waiting_for === 'days') {
+          showQuickActions(['14 days', '21 days', '30 days']);
+        }
+
+      } catch (error) {
+        showTyping(false);
+        addMessage('❌ Something went wrong. Please try again.', 'bot');
+      }
+
+      isLoading = false;
+      sendBtn.disabled = false;
+      chatInput.focus();
+    }
+
+    // Add message to chat
+    function addMessage(text, sender, data = null) {
+      const messageDiv = document.createElement('div');
+      messageDiv.className = `message ${sender}`;
+      
+      const avatar = sender === 'bot' ? '🚀' : '👤';
+      
+      // Format text (basic markdown)
+      let formattedText = text
+        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+        .replace(/\n/g, '<br>')
+        .replace(/• /g, '• ');
+
+      messageDiv.innerHTML = `
+        <div class="message-avatar">${avatar}</div>
+        <div class="message-content">${formattedText}</div>
+      `;
+
+      // Remove any existing quick actions
+      const existingActions = chatMessages.querySelector('.quick-actions');
+      if (existingActions) existingActions.remove();
+
+      chatMessages.appendChild(messageDiv);
+      scrollToBottom();
+    }
+
+    // Add domain card
+    function addDomainCard(domainData) {
+      const summary = domainData.summary || {};
+      const score = summary.total_score || summary.score || 0;
+      const level = summary.risk_level || summary.level || 'Unknown';
+      
+      let scoreClass = 'score-medium';
+      if (score >= 80) scoreClass = 'score-excellent';
+      else if (score >= 60) scoreClass = 'score-good';
+      else if (score < 40) scoreClass = 'score-poor';
+
+      const emailSec = domainData.email_security || {};
+      const ssl = domainData.ssl_quality || {};
+      
+      const cardHTML = `
+        <div class="domain-card">
+          <div class="domain-card-header">
+            <span class="domain-name">🌐 ${domainData.domain}</span>
+            <span class="score-badge ${scoreClass}">${score}/100 ${level}</span>
+          </div>
+          <div class="domain-stats">
+            <div class="stat-item">
+              <div class="stat-label">HTTPS</div>
+              <div class="stat-value">
+                <span class="stat-icon ${domainData.https_ok ? 'success' : 'error'}">${domainData.https_ok ? '✓' : '✗'}</span>
+                ${domainData.https_ok ? 'Secure' : 'Not Secure'}
+              </div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-label">Domain Age</div>
+              <div class="stat-value">
+                <span class="stat-icon ${domainData.whois_age_days > 365 ? 'success' : 'warning'}">📅</span>
+                ${Math.floor(domainData.whois_age_days / 365)} years
+              </div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-label">SPF</div>
+              <div class="stat-value">
+                <span class="stat-icon ${emailSec.spf_valid ? 'success' : 'error'}">${emailSec.spf_valid ? '✓' : '✗'}</span>
+                ${emailSec.spf_valid ? 'Valid' : 'Missing'}
+              </div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-label">DMARC</div>
+              <div class="stat-value">
+                <span class="stat-icon ${emailSec.dmarc_valid ? 'success' : 'error'}">${emailSec.dmarc_valid ? '✓' : '✗'}</span>
+                ${emailSec.dmarc_valid ? 'Valid' : 'Missing'}
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+
+      const cardDiv = document.createElement('div');
+      cardDiv.innerHTML = cardHTML;
+      
+      const lastBotMessage = chatMessages.querySelector('.message.bot:last-of-type .message-content');
+      if (lastBotMessage) {
+        lastBotMessage.appendChild(cardDiv.firstElementChild);
+      }
+      
+      scrollToBottom();
+    }
+
+    // Show quick action buttons
+    function showQuickActions(actions) {
+      const actionsDiv = document.createElement('div');
+      actionsDiv.className = 'quick-actions';
+      
+      actions.forEach(action => {
+        const btn = document.createElement('button');
+        btn.className = 'quick-action';
+        btn.textContent = action;
+        btn.onclick = () => {
+          chatInput.value = action;
+          sendMessage();
+        };
+        actionsDiv.appendChild(btn);
+      });
+
+      chatMessages.appendChild(actionsDiv);
+      scrollToBottom();
+    }
+
+    // Show/hide typing indicator
+    function showTyping(show) {
+      const existingTyping = chatMessages.querySelector('.typing-indicator');
+      if (existingTyping) existingTyping.remove();
+
+      if (show) {
+        const typingDiv = document.createElement('div');
+        typingDiv.className = 'typing-indicator';
+        typingDiv.innerHTML = `
+          <div class="typing-avatar">🚀</div>
+          <div class="typing-dots">
+            <span></span>
+            <span></span>
+            <span></span>
+          </div>
+        `;
+        chatMessages.appendChild(typingDiv);
+        scrollToBottom();
+      }
+    }
+
+    // Show/hide loading overlay
+    function showLoading(show, text = 'Loading...') {
+      const overlay = document.getElementById('loadingOverlay');
+      const loaderText = overlay.querySelector('.loader-text');
+      loaderText.textContent = text;
+      
+      if (show) {
+        overlay.classList.add('active');
+      } else {
+        overlay.classList.remove('active');
+      }
+    }
+
+    // Scroll to bottom of chat
+    function scrollToBottom() {
+      chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+
+    // Handle Enter key
+    chatInput.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendMessage();
+      }
+    });
+
+    // Initialize on load
+    window.onload = initChat;
+        </script>
+</body>
+</html>
