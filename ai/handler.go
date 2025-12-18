@@ -430,6 +430,37 @@ func handleWarmupDays(session *Session, userMessage string) ChatResponse {
 }
 
 func handleFollowup(session *Session, userMessage string) ChatResponse {
+	// Check if user wants to check a NEW domain
+	newDomain := extractDomain(userMessage)
+	if newDomain != "" && newDomain != session.Domain {
+		// User entered a new domain - reset session and process as new domain
+		session.Domain = ""
+		session.VettingData = nil
+		session.Score = 0
+		session.ScoreLabel = ""
+		session.WarmupDays = 0
+		session.Stage = "greeting"
+		session.Messages = []Message{} // Clear history for fresh start
+		
+		return handleDomainInput(session, userMessage)
+	}
+
+	// Check for keywords that indicate user wants to check another domain
+	lower := strings.ToLower(userMessage)
+	resetKeywords := []string{"new domain", "another domain", "check another", "different domain", "naya domain", "dusra domain", "start over", "reset", "restart"}
+	for _, keyword := range resetKeywords {
+		if strings.Contains(lower, keyword) {
+			session.Stage = "greeting"
+			return ChatResponse{
+				SessionID:  session.ID,
+				Reply:      "Sure! Please enter the domain you'd like to check (e.g., example.com):",
+				Stage:      "greeting",
+				WaitingFor: "domain",
+				CanProceed: true,
+			}
+		}
+	}
+
 	// Use Gemini for general follow-up questions
 	aiResponse := getAIFollowup(session, userMessage)
 
