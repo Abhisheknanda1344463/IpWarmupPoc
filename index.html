@@ -718,10 +718,16 @@
       const score = summary.total_score || summary.score || 0;
       const level = summary.risk_level || summary.level || 'Unknown';
       
+      // Use LEVEL from backend to determine color (not just score)
       let scoreClass = 'score-medium';
-      if (score >= 80) scoreClass = 'score-excellent';
-      else if (score >= 60) scoreClass = 'score-good';
-      else if (score < 40) scoreClass = 'score-poor';
+      const levelLower = level.toLowerCase();
+      if (levelLower === 'good' || levelLower === 'excellent') {
+        scoreClass = score >= 80 ? 'score-excellent' : 'score-good';
+      } else if (levelLower === 'medium') {
+        scoreClass = 'score-medium';
+      } else if (levelLower === 'high-risk' || levelLower === 'poor' || levelLower === 'bad') {
+        scoreClass = 'score-poor';
+      }
 
       const emailSec = domainData.email_security || {};
       const ssl = domainData.ssl_quality || {};
