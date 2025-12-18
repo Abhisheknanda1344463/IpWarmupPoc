@@ -441,7 +441,7 @@ func handleFollowup(session *Session, userMessage string) ChatResponse {
 		session.WarmupDays = 0
 		session.Stage = "greeting"
 		session.Messages = []Message{} // Clear history for fresh start
-		
+
 		return handleDomainInput(session, userMessage)
 	}
 
