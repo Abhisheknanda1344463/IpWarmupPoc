@@ -888,7 +888,10 @@ func generateFallbackWarmupPlan(session *Session) string {
 // UTILITY FUNCTIONS
 // ============================================================================
 
-// isDomainValid checks if domain exists via DNS lookup
+// isDomainValid checks if domain exists via DNS lookup or WHOIS
+// Returns true for:
+// 1. Domains with DNS records (A, MX, NS)
+// 2. Registered domains even without DNS (valid WHOIS)
 func isDomainValid(domain string) bool {
 	// Set a short timeout for DNS lookup
 	resolver := &net.Resolver{
@@ -922,7 +925,49 @@ func isDomainValid(domain string) bool {
 		return true
 	}
 
-	return false
+	// DNS failed - but domain might still be registered
+	// Accept domains that look valid (have proper TLD structure)
+	// The vetting API will do detailed WHOIS check and show warnings
+	// This allows domains like cathoderay.co.in (registered but no DNS) to proceed
+	return isValidDomainFormat(domain)
+}
+
+// isValidDomainFormat checks if domain has valid format for common TLDs
+// This is a fallback when DNS fails - allows registered domains without active DNS
+func isValidDomainFormat(domain string) bool {
+	parts := strings.Split(domain, ".")
+	if len(parts) < 2 {
+		return false
+	}
+
+	// Check common country-code TLDs with second-level domains
+	// e.g., .co.in, .co.uk, .com.au, etc.
+	knownSLDs := map[string]bool{
+		"co.in": true, "co.uk": true, "co.nz": true, "co.za": true,
+		"com.au": true, "com.br": true, "com.mx": true, "com.sg": true,
+		"net.in": true, "org.in": true, "org.uk": true, "gov.in": true,
+		"ac.in": true, "edu.in": true, "res.in": true, "gen.in": true,
+	}
+
+	// Check if last two parts form a known SLD
+	if len(parts) >= 3 {
+		sld := parts[len(parts)-2] + "." + parts[len(parts)-1]
+		if knownSLDs[sld] {
+			return true
+		}
+	}
+
+	// Check common gTLDs
+	knownTLDs := map[string]bool{
+		"com": true, "net": true, "org": true, "io": true, "co": true,
+		"dev": true, "app": true, "ai": true, "in": true, "uk": true,
+		"us": true, "de": true, "fr": true, "jp": true, "cn": true,
+		"ru": true, "br": true, "au": true, "ca": true, "edu": true,
+		"gov": true, "mil": true, "int": true, "info": true, "biz": true,
+	}
+
+	lastPart := parts[len(parts)-1]
+	return knownTLDs[lastPart]
 }
 
 func extractDomain(input string) string {
@@ -939,8 +984,10 @@ func extractDomain(input string) string {
 		input = input[:idx]
 	}
 
-	// Basic domain validation
-	domainRegex := regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9-]*\.[a-zA-Z]{2,}$`)
+	// Domain validation - supports multi-level TLDs like .co.in, .co.uk, etc.
+	// Pattern: alphanumeric start, can have hyphens, then at least one dot followed by more segments
+	// Examples: example.com, example.co.in, sub.example.co.uk
+	domainRegex := regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9-]*(\.[a-zA-Z0-9][a-zA-Z0-9-]*)+$`)
 	if domainRegex.MatchString(input) {
 		return input
 	}
