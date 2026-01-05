@@ -7,7 +7,7 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"time"
+	"time" 
 )
 
 const geminiBaseURL = "https://generativelanguage.googleapis.com/v1beta"
