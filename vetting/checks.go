@@ -64,7 +64,16 @@ func WhoisAgeDays(domain string) (int, string, string) {
 		return 0, "", ""
 	}
 
-	p, _ := parser.Parse(raw)
+	p, err := parser.Parse(raw)
+	if err != nil || p.Domain == nil {
+		// For subdomains, try parent domain (e.g., e.sellwithemail.online -> sellwithemail.online)
+		parts := strings.Split(domain, ".")
+		if len(parts) > 2 {
+			parentDomain := strings.Join(parts[1:], ".")
+			return WhoisAgeDays(parentDomain)
+		}
+		return 0, "", ""
+	}
 
 	createdStr := strings.TrimSpace(p.Domain.CreatedDate)
 	updatedStr := strings.TrimSpace(p.Domain.UpdatedDate)
@@ -275,7 +284,16 @@ func DomainExpiryDate(domain string) string {
 		return ""
 	}
 
-	p, _ := parser.Parse(raw)
+	p, err := parser.Parse(raw)
+	if err != nil || p.Domain == nil {
+		// For subdomains, try parent domain
+		parts := strings.Split(domain, ".")
+		if len(parts) > 2 {
+			parentDomain := strings.Join(parts[1:], ".")
+			return DomainExpiryDate(parentDomain)
+		}
+		return ""
+	}
 	dateStr := strings.TrimSpace(p.Domain.ExpirationDate)
 
 	layouts := []string{

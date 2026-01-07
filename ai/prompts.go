@@ -80,8 +80,13 @@ var ChatFlow = []QuestionFlow{
 		ExpectsType: "domain",
 	},
 	{
+		Stage:       "target_volume",
+		Question:    "📊 What **per day email volume** do you want to target?\n\nEnter the number of emails you want to send daily after warmup (e.g., 5000, 10000, 50000):",
+		ExpectsType: "volume",
+	},
+	{
 		Stage:       "warmup_days",
-		Question:    "How many days would you like for your warmup plan? (Common options: 14, 21, or 30 days)",
+		Question:    "⏱️ How many **days** would you like for your warmup plan?\n\nCommon options: 14, 21, or 30 days",
 		ExpectsType: "days",
 	},
 }

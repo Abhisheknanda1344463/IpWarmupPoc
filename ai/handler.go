@@ -57,6 +57,7 @@ type Session struct {
 	VettingData  map[string]any
 	Score        int
 	ScoreLabel   string
+	TargetVolume int // Target per-day email volume
 	WarmupDays   int
 	CreatedAt    time.Time
 	LastActivity time.Time
@@ -180,6 +181,10 @@ func processChat(session *Session, userMessage string) ChatResponse {
 	case "domain_analyzed":
 		// User responds to domain analysis - check if they want warmup
 		response = handleWarmupConfirmation(session, userMessage)
+
+	case "target_volume":
+		// User provides target email volume per day
+		response = handleTargetVolume(session, userMessage)
 
 	case "warmup_days":
 		// User provides warmup days
@@ -356,19 +361,14 @@ func handleWarmupConfirmation(session *Session, userMessage string) ChatResponse
 		}
 	}
 
-	if isPositive || extractDays(userMessage) > 0 {
-		// Check if they already mentioned days
-		days := extractDays(userMessage)
-		if days > 0 {
-			return handleWarmupDays(session, userMessage)
-		}
-
-		session.Stage = "warmup_days"
+	if isPositive {
+		// User wants warmup - ask for target volume first
+		session.Stage = "target_volume"
 		return ChatResponse{
 			SessionID:  session.ID,
-			Reply:      GetStageQuestion("warmup_days"),
+			Reply:      GetStageQuestion("target_volume"),
 			Stage:      session.Stage,
-			WaitingFor: "days",
+			WaitingFor: "volume",
 			CanProceed: true,
 		}
 	}
@@ -379,6 +379,52 @@ func handleWarmupConfirmation(session *Session, userMessage string) ChatResponse
 		Reply:      "Would you like me to create a warmup plan for your domain? Just say 'yes' or 'no', or tell me how many days you'd like (e.g., '14 days').",
 		Stage:      session.Stage,
 		WaitingFor: "confirmation",
+		CanProceed: true,
+	}
+}
+
+func handleTargetVolume(session *Session, userMessage string) ChatResponse {
+	volume := extractVolume(userMessage)
+
+	if volume <= 0 {
+		return ChatResponse{
+			SessionID:  session.ID,
+			Reply:      "Please enter a valid target volume (e.g., 5000, 10000, 50000). This is the daily email volume you want to reach after warmup.",
+			Stage:      "target_volume",
+			WaitingFor: "volume",
+			CanProceed: true,
+		}
+	}
+
+	// Validate reasonable range
+	if volume < 100 {
+		return ChatResponse{
+			SessionID:  session.ID,
+			Reply:      "Target volume seems too low. Please enter at least 100 emails per day.",
+			Stage:      "target_volume",
+			WaitingFor: "volume",
+			CanProceed: true,
+		}
+	}
+
+	if volume > 1000000 {
+		return ChatResponse{
+			SessionID:  session.ID,
+			Reply:      "Target volume seems too high. Please enter a realistic daily volume (up to 1,000,000).",
+			Stage:      "target_volume",
+			WaitingFor: "volume",
+			CanProceed: true,
+		}
+	}
+
+	session.TargetVolume = volume
+	session.Stage = "warmup_days"
+
+	return ChatResponse{
+		SessionID:  session.ID,
+		Reply:      GetStageQuestion("warmup_days"),
+		Stage:      session.Stage,
+		WaitingFor: "days",
 		CanProceed: true,
 	}
 }
@@ -398,8 +444,14 @@ func handleWarmupDays(session *Session, userMessage string) ChatResponse {
 
 	session.WarmupDays = days
 
-	// Call the actual warmup API with Excel formula
-	warmupData, err := callWarmupAPI(days)
+	// Use target volume from session (default 10000 if not set)
+	targetVolume := session.TargetVolume
+	if targetVolume <= 0 {
+		targetVolume = 10000
+	}
+
+	// Call the actual warmup API with target volume
+	warmupData, err := callWarmupAPIWithVolume(targetVolume, days)
 	if err != nil {
 		// Fallback to AI-generated plan if API fails
 		plan := generateWarmupPlan(session)
@@ -555,11 +607,13 @@ func generateWarmupPlan(session *Session) string {
 	return response
 }
 
-// callWarmupAPI calls the backend warmup API with Excel formula
+// callWarmupAPI calls the backend warmup API with default volume
 func callWarmupAPI(days int) (map[string]any, error) {
-	// Default target volume - can be made configurable
-	targetVolume := 10000
+	return callWarmupAPIWithVolume(10000, days)
+}
 
+// callWarmupAPIWithVolume calls the backend warmup API with specified volume
+func callWarmupAPIWithVolume(targetVolume int, days int) (map[string]any, error) {
 	reqBody, _ := json.Marshal(map[string]int{
 		"target_volume": targetVolume,
 		"days":          days,
@@ -1012,6 +1066,23 @@ func extractDays(input string) int {
 	for _, match := range matches {
 		if days, err := strconv.Atoi(match); err == nil && days > 0 && days <= 90 {
 			return days
+		}
+	}
+
+	return 0
+}
+
+func extractVolume(input string) int {
+	// Remove commas from numbers (e.g., "10,000" -> "10000")
+	input = strings.ReplaceAll(input, ",", "")
+
+	// Look for numbers in the input
+	re := regexp.MustCompile(`\d+`)
+	matches := re.FindAllString(input, -1)
+
+	for _, match := range matches {
+		if volume, err := strconv.Atoi(match); err == nil && volume > 0 {
+			return volume
 		}
 	}
 

@@ -672,6 +672,8 @@
         // Show quick actions based on stage
         if (data.waiting_for === 'confirmation') {
           showQuickActions(['Yes, create warmup plan', 'No, thanks']);
+        } else if (data.waiting_for === 'volume') {
+          showQuickActions(['5,000', '10,000', '25,000', '50,000']);
         } else if (data.waiting_for === 'days') {
           showQuickActions(['14 days', '21 days', '30 days']);
         }

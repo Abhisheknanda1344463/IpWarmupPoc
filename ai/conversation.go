@@ -15,6 +15,7 @@ type ConversationStage string
 const (
 	StageGreeting       ConversationStage = "greeting"
 	StageDomainAnalyzed ConversationStage = "domain_analyzed"
+	StageTargetVolume   ConversationStage = "target_volume"
 	StageWarmupDays     ConversationStage = "warmup_days"
 	StagePlanGenerated  ConversationStage = "plan_generated"
 	StageFollowup       ConversationStage = "followup"
