@@ -253,76 +253,189 @@
       30% { transform: translateY(-8px); }
     }
 
-    /* Domain Card */
+    /* Domain Card - Score Circle Design */
     .domain-card {
       background: var(--bg-dark);
       border-radius: 14px;
-      padding: 16px;
+      padding: 20px;
       margin-top: 12px;
       border: 1px solid var(--border-color);
-    }
-
-    .domain-card-header {
       display: flex;
-      justify-content: space-between;
+      flex-direction: column;
       align-items: center;
-      margin-bottom: 14px;
+      gap: 16px;
     }
 
     .domain-name {
       font-weight: 600;
       color: var(--text-primary);
       font-size: 15px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
     }
 
-    .score-badge {
-      padding: 6px 12px;
-      border-radius: 20px;
-      font-size: 12px;
+    /* Score Circle */
+    .score-circle-container {
+      position: relative;
+      width: 120px;
+      height: 120px;
+    }
+
+    .score-circle-bg {
+      fill: none;
+      stroke: var(--bg-card);
+      stroke-width: 8;
+    }
+
+    .score-circle-progress {
+      fill: none;
+      stroke-width: 8;
+      stroke-linecap: round;
+      transform: rotate(-90deg);
+      transform-origin: 50% 50%;
+      transition: stroke-dashoffset 1s ease-out;
+    }
+
+    .score-circle-progress.excellent { stroke: var(--success); }
+    .score-circle-progress.good { stroke: #34D399; }
+    .score-circle-progress.medium { stroke: var(--warning); }
+    .score-circle-progress.poor { stroke: var(--error); }
+    .score-circle-progress.rejected { stroke: #DC2626; }
+
+    .score-circle-text {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      text-align: center;
+    }
+
+    .score-value {
+      font-size: 32px;
+      font-weight: 700;
+      color: var(--text-primary);
+      line-height: 1;
+    }
+
+    .score-label {
+      font-size: 11px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-top: 4px;
+    }
+
+    .score-level {
+      font-size: 13px;
       font-weight: 600;
+      padding: 4px 12px;
+      border-radius: 12px;
+      text-transform: capitalize;
     }
 
-    .score-excellent { background: rgba(16, 185, 129, 0.2); color: var(--success); }
-    .score-good { background: rgba(16, 185, 129, 0.15); color: #34D399; }
-    .score-medium { background: rgba(245, 158, 11, 0.2); color: var(--warning); }
-    .score-poor { background: rgba(239, 68, 68, 0.2); color: var(--error); }
+    .score-level.excellent { background: rgba(16, 185, 129, 0.2); color: var(--success); }
+    .score-level.good { background: rgba(52, 211, 153, 0.2); color: #34D399; }
+    .score-level.medium { background: rgba(245, 158, 11, 0.2); color: var(--warning); }
+    .score-level.poor { background: rgba(239, 68, 68, 0.2); color: var(--error); }
+    .score-level.rejected { background: rgba(220, 38, 38, 0.25); color: #DC2626; }
 
-    .domain-stats {
-      display: grid;
-      grid-template-columns: repeat(2, 1fr);
+    /* Rejection Warning */
+    .reject-warning {
+      background: rgba(220, 38, 38, 0.15);
+      border: 1px solid rgba(220, 38, 38, 0.3);
+      border-radius: 10px;
+      padding: 12px 16px;
+      width: 100%;
+      display: flex;
+      align-items: flex-start;
       gap: 10px;
     }
 
-    .stat-item {
-      background: var(--bg-card);
-      padding: 10px 12px;
-      border-radius: 10px;
+    .reject-warning-icon {
+      font-size: 18px;
+      flex-shrink: 0;
     }
 
-    .stat-label {
-      font-size: 11px;
-      color: var(--text-muted);
+    .reject-warning-text {
+      font-size: 12px;
+      color: #FCA5A5;
+      line-height: 1.5;
+    }
+
+    .reject-warning-text strong {
+      color: #FCA5A5;
+      display: block;
       margin-bottom: 4px;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
+      font-size: 13px;
     }
 
-    .stat-value {
-      font-size: 14px;
-      font-weight: 600;
-      color: var(--text-primary);
+    /* Warning Messages Container */
+    .warnings-container {
+      width: 100%;
       display: flex;
-      align-items: center;
-      gap: 6px;
+      flex-direction: column;
+      gap: 8px;
+      margin-top: 4px;
     }
 
-    .stat-icon {
+    /* Individual Warning Item */
+    .warning-item {
+      border-radius: 8px;
+      padding: 10px 14px;
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      font-size: 12px;
+      line-height: 1.4;
+    }
+
+    .warning-item-icon {
+      font-size: 14px;
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+
+    .warning-item-text {
+      flex: 1;
+    }
+
+    .warning-item-text strong {
+      display: block;
+      margin-bottom: 2px;
       font-size: 12px;
     }
 
-    .stat-icon.success { color: var(--success); }
-    .stat-icon.warning { color: var(--warning); }
-    .stat-icon.error { color: var(--error); }
+    /* Warning Types */
+    .warning-critical {
+      background: rgba(220, 38, 38, 0.15);
+      border: 1px solid rgba(220, 38, 38, 0.3);
+      color: #FCA5A5;
+    }
+
+    .warning-critical strong {
+      color: #F87171;
+    }
+
+    .warning-important {
+      background: rgba(245, 158, 11, 0.15);
+      border: 1px solid rgba(245, 158, 11, 0.3);
+      color: #FCD34D;
+    }
+
+    .warning-important strong {
+      color: #FBBF24;
+    }
+
+    .warning-info {
+      background: rgba(59, 130, 246, 0.15);
+      border: 1px solid rgba(59, 130, 246, 0.3);
+      color: #93C5FD;
+    }
+
+    .warning-info strong {
+      color: #60A5FA;
+    }
 
     /* Quick Actions */
     .quick-actions {
@@ -671,11 +784,17 @@
 
         // Show quick actions based on stage
         if (data.waiting_for === 'confirmation') {
-          showQuickActions(['Yes, create warmup plan', 'No, thanks']);
+          showQuickActions(['Yes, create warmup plan', 'Check another domain']);
         } else if (data.waiting_for === 'volume') {
-          showQuickActions(['5,000', '10,000', '25,000', '50,000']);
+          showQuickActions(['5,000', '10,000', '25,000', '50,000', 'Go back']);
         } else if (data.waiting_for === 'days') {
-          showQuickActions(['14 days', '21 days', '30 days']);
+          showQuickActions(['14 days', '21 days', '30 days', 'Go back', 'Change volume']);
+        } else if (data.waiting_for === 'domain') {
+          // Show sample domains for testing
+          showQuickActions(['maropost.com', 'google.com', 'sellwithemail.online']);
+        } else if (data.waiting_for === 'freetext' && data.stage === 'plan_generated') {
+          // After warmup plan is generated, show options
+          showQuickActions(['Check another domain', 'Change days', 'Change volume']);
         }
 
       } catch (error) {
@@ -714,62 +833,151 @@
       scrollToBottom();
     }
 
-    // Add domain card
+    // Add domain card with score circle
     function addDomainCard(domainData) {
       const summary = domainData.summary || {};
       const score = summary.total_score || summary.score || 0;
       const level = summary.risk_level || summary.level || 'Unknown';
+      const isRejected = domainData.is_rejected || false;
+      const rejectReason = domainData.reject_reason || '';
       
-      // Use LEVEL from backend to determine color (not just score)
-      let scoreClass = 'score-medium';
+      // Determine score class based on level or rejection
+      let scoreClass = 'medium';
       const levelLower = level.toLowerCase();
-      if (levelLower === 'good' || levelLower === 'excellent') {
-        scoreClass = score >= 80 ? 'score-excellent' : 'score-good';
+      if (isRejected || levelLower === 'rejected') {
+        scoreClass = 'rejected';
+      } else if (levelLower === 'good' || levelLower === 'excellent') {
+        scoreClass = score >= 80 ? 'excellent' : 'good';
       } else if (levelLower === 'medium') {
-        scoreClass = 'score-medium';
+        scoreClass = 'medium';
       } else if (levelLower === 'high-risk' || levelLower === 'poor' || levelLower === 'bad') {
-        scoreClass = 'score-poor';
+        scoreClass = 'poor';
       }
 
+      // Calculate circle progress (circumference = 2 * PI * radius)
+      const radius = 52;
+      const circumference = 2 * Math.PI * radius;
+      const progress = ((100 - score) / 100) * circumference;
+      
+      // Display level text
+      let levelText = level;
+      if (isRejected) {
+        levelText = 'Rejected';
+      }
+
+      // Build rejection warning HTML if rejected
+      let rejectHTML = '';
+      if (isRejected && rejectReason) {
+        let cleanReason = rejectReason.replace('REJECTED: ', '');
+        rejectHTML = `
+          <div class="reject-warning">
+            <span class="reject-warning-icon">🚫</span>
+            <div class="reject-warning-text">
+              <strong>Domain Cannot Be Warmed Up</strong>
+              ${cleanReason}
+            </div>
+          </div>
+        `;
+      }
+
+      // Build warnings HTML
+      let warningsHTML = '';
+      const warnings = [];
+
+      // Check DMARC
       const emailSec = domainData.email_security || {};
-      const ssl = domainData.ssl_quality || {};
+      if (!emailSec.has_dmarc) {
+        warnings.push({
+          type: 'critical',
+          icon: '🔴',
+          title: 'DMARC Missing',
+          text: 'No DMARC record found. Email authentication will fail. Add a DMARC record to improve deliverability.'
+        });
+      } else if (emailSec.dmarc_warning && emailSec.dmarc_warning.includes('p=none')) {
+        warnings.push({
+          type: 'important',
+          icon: '🟡',
+          title: 'Weak DMARC Policy',
+          text: 'DMARC policy is set to "none". Consider upgrading to "quarantine" or "reject".'
+        });
+      }
+
+      // Check MX
+      if (!emailSec.has_valid_mx) {
+        warnings.push({
+          type: 'critical',
+          icon: '🔴',
+          title: 'MX Records Missing',
+          text: 'No valid MX records found. Email cannot be received on this domain.'
+        });
+      }
+
+      // Check Blacklists
+      const blacklistHits = domainData.blacklist_hits || [];
+      if (blacklistHits.length > 0) {
+        const blacklistNames = blacklistHits.map(b => b.blacklist || b.name || 'Unknown').join(', ');
+        warnings.push({
+          type: 'critical',
+          icon: '⚠️',
+          title: `Blacklisted (${blacklistHits.length})`,
+          text: `Domain found on: ${blacklistNames}. Request delisting to improve reputation.`
+        });
+      }
+
+      // Check CAPTCHA
+      const optin = domainData.optin || {};
+      if (!optin.has_captcha) {
+        warnings.push({
+          type: 'important',
+          icon: '🟡',
+          title: 'No CAPTCHA Detected',
+          text: 'Website may be exposed to bots and spam. Consider adding reCAPTCHA or hCaptcha.'
+        });
+      }
+
+      // Build warnings HTML
+      if (warnings.length > 0 && !isRejected) {
+        warningsHTML = '<div class="warnings-container">';
+        warnings.forEach(w => {
+          warningsHTML += `
+            <div class="warning-item warning-${w.type}">
+              <span class="warning-item-icon">${w.icon}</span>
+              <div class="warning-item-text">
+                <strong>${w.title}</strong>
+                ${w.text}
+              </div>
+            </div>
+          `;
+        });
+        warningsHTML += '</div>';
+      }
       
       const cardHTML = `
         <div class="domain-card">
-          <div class="domain-card-header">
-            <span class="domain-name">🌐 ${domainData.domain}</span>
-            <span class="score-badge ${scoreClass}">${score}/100 ${level}</span>
-          </div>
-          <div class="domain-stats">
-            <div class="stat-item">
-              <div class="stat-label">HTTPS</div>
-              <div class="stat-value">
-                <span class="stat-icon ${domainData.https_ok ? 'success' : 'error'}">${domainData.https_ok ? '✓' : '✗'}</span>
-                ${domainData.https_ok ? 'Secure' : 'Not Secure'}
-              </div>
-            </div>
-            <div class="stat-item">
-              <div class="stat-label">Domain Age</div>
-              <div class="stat-value">
-                <span class="stat-icon ${domainData.whois_age_days > 365 ? 'success' : 'warning'}">📅</span>
-                ${Math.floor(domainData.whois_age_days / 365)} years
-              </div>
-            </div>
-            <div class="stat-item">
-              <div class="stat-label">SPF</div>
-              <div class="stat-value">
-                <span class="stat-icon ${emailSec.has_spf ? 'success' : 'error'}">${emailSec.has_spf ? '✓' : '✗'}</span>
-                ${emailSec.has_spf ? 'Valid' : 'Missing'}
-              </div>
-            </div>
-            <div class="stat-item">
-              <div class="stat-label">DMARC</div>
-              <div class="stat-value">
-                <span class="stat-icon ${emailSec.has_dmarc ? 'success' : 'error'}">${emailSec.has_dmarc ? '✓' : '✗'}</span>
-                ${emailSec.has_dmarc ? 'Valid' : 'Missing'}
-              </div>
+          <span class="domain-name">🌐 ${domainData.domain}</span>
+          
+          <div class="score-circle-container">
+            <svg width="120" height="120" viewBox="0 0 120 120">
+              <circle class="score-circle-bg" cx="60" cy="60" r="${radius}"></circle>
+              <circle 
+                class="score-circle-progress ${scoreClass}" 
+                cx="60" 
+                cy="60" 
+                r="${radius}"
+                stroke-dasharray="${circumference}"
+                stroke-dashoffset="${progress}"
+              ></circle>
+            </svg>
+            <div class="score-circle-text">
+              <div class="score-value">${score}</div>
+              <div class="score-label">Score</div>
             </div>
           </div>
+          
+          <span class="score-level ${scoreClass}">${levelText}</span>
+          
+          ${rejectHTML}
+          ${warningsHTML}
         </div>
       `;
 

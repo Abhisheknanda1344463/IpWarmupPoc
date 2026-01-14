@@ -118,6 +118,7 @@ type PenaltyBreakdown struct {
 	NoMXRecord         int `json:"no_mx_record,omitempty"`
 	NoSPF              int `json:"no_spf,omitempty"`
 	NoDMARC            int `json:"no_dmarc,omitempty"`
+	DMARCPolicyNone    int `json:"dmarc_policy_none,omitempty"` // p=none penalty
 	TrafficScoreLow    int `json:"traffic_score_low,omitempty"`
 	TrafficScoreMedium int `json:"traffic_score_medium,omitempty"`
 	TrustScoreLow      int `json:"trust_score_low,omitempty"`

@@ -254,7 +254,7 @@ func handleDomainInput(session *Session, userMessage string) ChatResponse {
 
 	session.VettingData = vettingData
 
-	// Extract score from vetting data
+	// Extract score and rejection status from vetting data
 	if summary, ok := vettingData["summary"].(map[string]any); ok {
 		if score, ok := summary["score"].(float64); ok {
 			session.Score = int(score)
@@ -264,11 +264,22 @@ func handleDomainInput(session *Session, userMessage string) ChatResponse {
 		}
 	}
 
+	// Check if domain is rejected (critical issues)
+	isRejected := false
+	rejectReason := ""
+	if rejected, ok := vettingData["is_rejected"].(bool); ok {
+		isRejected = rejected
+	}
+	if reason, ok := vettingData["reject_reason"].(string); ok {
+		rejectReason = reason
+	}
+
 	if session.ScoreLabel == "" {
 		session.ScoreLabel = ScoreInterpretation(session.Score)
 	}
 
-	canProceed := CanProceedWithWarmup(session.Score)
+	// Can proceed unless REJECTED (critical issues like blacklist, no HTTPS, etc.)
+	canProceed := CanProceedWithWarmup(isRejected)
 
 	// FAST PATH: If user provided days AND domain can proceed → directly generate warmup plan
 	if daysProvided > 0 && canProceed {
@@ -306,31 +317,84 @@ func handleDomainInput(session *Session, userMessage string) ChatResponse {
 		}
 	}
 
-	// SLOW PATH: Normal flow - show analysis first
+	// Handle REJECTED domains - don't allow warmup
+	if !canProceed {
+		// Generate rejection message
+		rejectionMsg := generateRejectionMessage(session, vettingData, rejectReason)
+		session.Stage = "plan_generated" // End flow here
+
+		return ChatResponse{
+			SessionID:  session.ID,
+			Reply:      rejectionMsg,
+			Stage:      session.Stage,
+			WaitingFor: "freetext", // Allow checking another domain
+			DomainData: vettingData,
+			CanProceed: false,
+		}
+	}
+
+	// NORMAL PATH: Show analysis and ask if they want warmup plan
 	aiResponse := getAIAnalysis(session, vettingData)
 	session.Stage = "domain_analyzed"
-
-	waitingFor := "confirmation"
-	if !canProceed {
-		waitingFor = "freetext"
-		session.Stage = "plan_generated" // Skip warmup for bad domains
-	}
 
 	return ChatResponse{
 		SessionID:  session.ID,
 		Reply:      aiResponse,
 		Stage:      session.Stage,
-		WaitingFor: waitingFor,
+		WaitingFor: "confirmation",
 		DomainData: vettingData,
-		CanProceed: canProceed,
+		CanProceed: true, // Always true for non-rejected domains
 	}
 }
 
-func handleWarmupConfirmation(session *Session, userMessage string) ChatResponse {
-	lower := strings.ToLower(userMessage)
+// generateRejectionMessage creates a message for rejected domains
+func generateRejectionMessage(session *Session, vettingData map[string]any, rejectReason string) string {
+	msg := fmt.Sprintf("🚫 **Domain Rejected: %s**\n\n", session.Domain)
+	msg += fmt.Sprintf("**Score:** %d/100 (%s)\n\n", session.Score, session.ScoreLabel)
 
-	// Check if user wants to proceed
-	positiveWords := []string{"yes", "yeah", "yep", "sure", "ok", "okay", "proceed", "continue", "warmup", "warm up", "plan", "haan", "ha", "ji"}
+	msg += "**Critical Issues Found:**\n"
+	if rejectReason != "" {
+		// Clean up reason
+		cleanReason := strings.Replace(rejectReason, "REJECTED: ", "", 1)
+		reasons := strings.Split(cleanReason, "; ")
+		for _, r := range reasons {
+			msg += fmt.Sprintf("• ❌ %s\n", r)
+		}
+	}
+
+	msg += "\n**What to do:**\n"
+	msg += "1. Fix the critical issues listed above\n"
+	msg += "2. Contact the **Deliverability Team** for assistance\n"
+	msg += "3. Once fixed, come back and re-verify your domain\n\n"
+
+	msg += "Would you like to check another domain?"
+
+	return msg
+}
+
+func handleWarmupConfirmation(session *Session, userMessage string) ChatResponse {
+	// FIRST: Check if user entered a NEW domain directly (intelligent detection)
+	newDomain := extractDomain(userMessage)
+	if newDomain != "" && newDomain != session.Domain {
+		// User entered a new domain - process it
+		return handleNewDomainRequest(session, userMessage, newDomain)
+	}
+
+	// Use AI to detect intent
+	if DetectChangeDomainIntent(userMessage) {
+		session.Stage = "greeting"
+		return ChatResponse{
+			SessionID:  session.ID,
+			Reply:      "Sure! Please enter the domain you'd like to check:",
+			Stage:      "greeting",
+			WaitingFor: "domain",
+			CanProceed: true,
+		}
+	}
+
+	// Check for explicit positive/negative words as fallback
+	lower := strings.ToLower(userMessage)
+	positiveWords := []string{"yes", "yeah", "yep", "sure", "ok", "okay", "proceed", "continue", "warmup", "warm up", "plan", "create", "haan", "ha", "ji"}
 	negativeWords := []string{"no", "nope", "nah", "cancel", "stop", "exit", "nahi", "na"}
 
 	isPositive := false
@@ -351,12 +415,12 @@ func handleWarmupConfirmation(session *Session, userMessage string) ChatResponse
 	}
 
 	if isNegative {
-		session.Stage = "plan_generated"
+		session.Stage = "greeting"
 		return ChatResponse{
 			SessionID:  session.ID,
-			Reply:      "No problem! Feel free to ask me anything else about your domain or email deliverability. 👋",
+			Reply:      "No problem! Would you like to check another domain? Just enter a domain name.",
 			Stage:      session.Stage,
-			WaitingFor: "freetext",
+			WaitingFor: "domain",
 			CanProceed: true,
 		}
 	}
@@ -373,23 +437,127 @@ func handleWarmupConfirmation(session *Session, userMessage string) ChatResponse
 		}
 	}
 
-	// Unclear response - ask again
+	// Unclear response - ask again with all options
 	return ChatResponse{
 		SessionID:  session.ID,
-		Reply:      "Would you like me to create a warmup plan for your domain? Just say 'yes' or 'no', or tell me how many days you'd like (e.g., '14 days').",
+		Reply:      "What would you like to do?\n\n• Say **'yes'** to create a warmup plan\n• Or enter a new domain to verify",
 		Stage:      session.Stage,
 		WaitingFor: "confirmation",
 		CanProceed: true,
 	}
 }
 
+// handleNewDomainRequest handles when user enters a new domain at any stage
+func handleNewDomainRequest(session *Session, userMessage string, newDomain string) ChatResponse {
+	// Reset session for new domain
+	session.Domain = ""
+	session.VettingData = nil
+	session.Score = 0
+	session.ScoreLabel = ""
+	session.TargetVolume = 0
+	session.WarmupDays = 0
+	session.Stage = "greeting"
+
+	// Process the new domain
+	return handleDomainInput(session, userMessage)
+}
+
+// goBackToDomain resets to domain input stage
+func goBackToDomain(session *Session) ChatResponse {
+	session.Domain = ""
+	session.VettingData = nil
+	session.Score = 0
+	session.ScoreLabel = ""
+	session.TargetVolume = 0
+	session.WarmupDays = 0
+	session.Stage = "greeting"
+
+	return ChatResponse{
+		SessionID:  session.ID,
+		Reply:      "Sure! Please enter the domain you'd like to check:",
+		Stage:      "greeting",
+		WaitingFor: "domain",
+		CanProceed: true,
+	}
+}
+
+// goBackToDomainAnalysis goes back to domain analysis (after domain check)
+func goBackToDomainAnalysis(session *Session) ChatResponse {
+	session.TargetVolume = 0
+	session.WarmupDays = 0
+	session.Stage = "domain_analyzed"
+
+	return ChatResponse{
+		SessionID:  session.ID,
+		Reply:      fmt.Sprintf("Back to domain analysis for **%s** (Score: %d/100).\n\nWould you like to create a warmup plan, or check a different domain?", session.Domain, session.Score),
+		Stage:      "domain_analyzed",
+		WaitingFor: "confirmation",
+		DomainData: session.VettingData,
+		CanProceed: true,
+	}
+}
+
+// goBackToTargetVolume goes back to target volume step
+func goBackToTargetVolume(session *Session) ChatResponse {
+	session.WarmupDays = 0
+	session.Stage = "target_volume"
+
+	currentVolume := ""
+	if session.TargetVolume > 0 {
+		currentVolume = fmt.Sprintf("\n\n*Current target: %d emails/day*", session.TargetVolume)
+	}
+
+	return ChatResponse{
+		SessionID:  session.ID,
+		Reply:      fmt.Sprintf("Sure! What daily email volume do you want to target?%s\n\n💡 *Tip: Say 'go back' to return to domain analysis.*", currentVolume),
+		Stage:      "target_volume",
+		WaitingFor: "volume",
+		CanProceed: true,
+	}
+}
+
+// goBackToWarmupDays goes back to warmup days step
+func goBackToWarmupDays(session *Session) ChatResponse {
+	session.Stage = "warmup_days"
+
+	currentDays := ""
+	if session.WarmupDays > 0 {
+		currentDays = fmt.Sprintf("\n\n*Current: %d days*", session.WarmupDays)
+	}
+
+	return ChatResponse{
+		SessionID:  session.ID,
+		Reply:      fmt.Sprintf("Sure! How many days do you want for warmup?%s\n\n💡 *Tip: Say 'go back' to change target volume.*", currentDays),
+		Stage:      "warmup_days",
+		WaitingFor: "days",
+		CanProceed: true,
+	}
+}
+
 func handleTargetVolume(session *Session, userMessage string) ChatResponse {
+	// Check if user wants to check another domain instead
+	newDomain := extractDomain(userMessage)
+	if newDomain != "" && newDomain != session.Domain {
+		return handleNewDomainRequest(session, userMessage, newDomain)
+	}
+
+	// Check user intent for navigation
+	intent := DetectUserIntent(userMessage)
+
+	switch intent {
+	case IntentChangeDomain:
+		return goBackToDomain(session)
+	case IntentGoBack:
+		// Go back to domain analysis
+		return goBackToDomainAnalysis(session)
+	}
+
 	volume := extractVolume(userMessage)
 
 	if volume <= 0 {
 		return ChatResponse{
 			SessionID:  session.ID,
-			Reply:      "Please enter a valid target volume (e.g., 5000, 10000, 50000). This is the daily email volume you want to reach after warmup.",
+			Reply:      "Please enter a valid target volume (e.g., 5000, 10000, 50000).\n\n💡 *Tip: Say 'go back' to return to domain analysis, or enter a new domain to check.*",
 			Stage:      "target_volume",
 			WaitingFor: "volume",
 			CanProceed: true,
@@ -430,12 +598,29 @@ func handleTargetVolume(session *Session, userMessage string) ChatResponse {
 }
 
 func handleWarmupDays(session *Session, userMessage string) ChatResponse {
+	// Check if user wants to check another domain instead
+	newDomain := extractDomain(userMessage)
+	if newDomain != "" && newDomain != session.Domain {
+		return handleNewDomainRequest(session, userMessage, newDomain)
+	}
+
+	// Check user intent for navigation
+	intent := DetectUserIntent(userMessage)
+
+	switch intent {
+	case IntentChangeDomain:
+		return goBackToDomain(session)
+	case IntentChangeVolume, IntentGoBack:
+		// Go back to target volume
+		return goBackToTargetVolume(session)
+	}
+
 	days := extractDays(userMessage)
 
 	if days <= 0 || days > 90 {
 		return ChatResponse{
 			SessionID:  session.ID,
-			Reply:      "Please enter a valid number of days between 1 and 90. Common options are 14, 21, or 30 days.",
+			Reply:      "Please enter a valid number of days between 1 and 90. Common options are 14, 21, or 30 days.\n\n💡 *Tip: Say 'go back' to change target volume, or 'change domain' to check another domain.*",
 			Stage:      "warmup_days",
 			WaitingFor: "days",
 			CanProceed: true,
@@ -486,31 +671,25 @@ func handleFollowup(session *Session, userMessage string) ChatResponse {
 	newDomain := extractDomain(userMessage)
 	if newDomain != "" && newDomain != session.Domain {
 		// User entered a new domain - reset session and process as new domain
-		session.Domain = ""
-		session.VettingData = nil
-		session.Score = 0
-		session.ScoreLabel = ""
-		session.WarmupDays = 0
-		session.Stage = "greeting"
-		session.Messages = []Message{} // Clear history for fresh start
-
-		return handleDomainInput(session, userMessage)
+		return handleNewDomainRequest(session, userMessage, newDomain)
 	}
 
-	// Check for keywords that indicate user wants to check another domain
-	lower := strings.ToLower(userMessage)
-	resetKeywords := []string{"new domain", "another domain", "check another", "different domain", "naya domain", "dusra domain", "start over", "reset", "restart"}
-	for _, keyword := range resetKeywords {
-		if strings.Contains(lower, keyword) {
-			session.Stage = "greeting"
-			return ChatResponse{
-				SessionID:  session.ID,
-				Reply:      "Sure! Please enter the domain you'd like to check (e.g., example.com):",
-				Stage:      "greeting",
-				WaitingFor: "domain",
-				CanProceed: true,
-			}
+	// Check user intent for navigation
+	intent := DetectUserIntent(userMessage)
+
+	switch intent {
+	case IntentChangeDomain:
+		return goBackToDomain(session)
+	case IntentChangeVolume:
+		return goBackToTargetVolume(session)
+	case IntentChangeDays:
+		return goBackToWarmupDays(session)
+	case IntentGoBack:
+		// After plan generated, go back to warmup days
+		if session.WarmupDays > 0 {
+			return goBackToWarmupDays(session)
 		}
+		return goBackToDomain(session)
 	}
 
 	// Use Gemini for general follow-up questions
@@ -886,12 +1065,11 @@ func generateFallbackAnalysis(session *Session) string {
 	case session.Score >= 40:
 		analysis = fmt.Sprintf("⚠️ Your domain **%s** has a medium reputation score of **%d/100**. There are some concerns, but warmup is still possible with caution.", session.Domain, session.Score)
 	default:
-		analysis = fmt.Sprintf("❌ Your domain **%s** has a poor reputation score of **%d/100**. I recommend contacting the deliverability team before attempting warmup.", session.Domain, session.Score)
+		analysis = fmt.Sprintf("⚠️ Your domain **%s** has a low reputation score of **%d/100**. We recommend fixing the issues shown above, but you can still proceed with warmup.", session.Domain, session.Score)
 	}
 
-	if CanProceedWithWarmup(session.Score) {
-		analysis += "\n\nWould you like me to create a warmup plan for you?"
-	}
+	// Always show warmup option for non-rejected domains
+	analysis += "\n\nWould you like me to create a warmup plan for you?"
 
 	_ = scoreLabel // used in AI version
 	return analysis

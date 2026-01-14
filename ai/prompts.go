@@ -117,7 +117,9 @@ func ScoreInterpretation(score int) string {
 	}
 }
 
-// CanProceedWithWarmup checks if domain is healthy enough for warmup
-func CanProceedWithWarmup(score int) bool {
-	return score >= 40 // Medium or better
+// CanProceedWithWarmup checks if domain can proceed with warmup
+// Only rejected domains (critical issues) are blocked
+// Low score domains can still proceed with warnings
+func CanProceedWithWarmup(isRejected bool) bool {
+	return !isRejected // Only block if explicitly rejected
 }

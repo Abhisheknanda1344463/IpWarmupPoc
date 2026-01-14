@@ -221,7 +221,7 @@ func ValidateOptInComplianceEnhanced(
 	}
 
 	// Fallback: Self-attestation (lowest priority)
-	if selfAttested != nil && selfAttested.HasOptIn {
+	if selfAttested != nil && selfAttested.OptInLink != "" {
 		result.Compliance = true
 		result.VerifiedVia = "self_attested"
 		result.Evidence = []string{"Customer self-attestation"}

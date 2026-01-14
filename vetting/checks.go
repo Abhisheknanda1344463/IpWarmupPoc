@@ -129,10 +129,13 @@ type MXBlacklistResult struct {
 }
 
 var domainRBLs = []string{
-	"multi.surbl.org",
+	// CRITICAL - Auto Reject
+	"multi.surbl.org",           // SURBL
+	"ivmuri.invaluement.com",    // ivmURL / Invaluement
+	
+	// Other domain-based RBLs
 	"uribl.spameatingmonkey.net",
 	"uribl.blacklist.woody.ch",
-	"ivmuri.invaluement.com",
 	"ubl.unsubscore.com",
 }
 
@@ -154,14 +157,26 @@ func checkDomainRBL(domain string) []BlacklistEntry {
 }
 
 var ipRBLs = []string{
-	"zen.spamhaus.org",
+	// CRITICAL - Auto Reject
+	"zen.spamhaus.org",          // Spamhaus (includes SBL, XBL, PBL)
+	"combined.abuse.ch",         // Abusix alternative (abuse.ch)
+	"dnsbl.abuseat.org",         // Abusix CBL
+	
+	// Penalty-based
+	"bl.spamcop.net",            // Spamcop (-10)
+	"b.barracudacentral.org",    // Barracuda (-10)
+	
+	// UCEProtect Levels
+	"dnsbl-1.uceprotect.net",    // UCEProtect Level 1 (-5)
+	"dnsbl-2.uceprotect.net",    // UCEProtect Level 2 (-10)
+	"dnsbl-3.uceprotect.net",    // UCEProtect Level 3 (-20)
+	
+	// Other IP-based RBLs
 	"bl.mailspike.net",
 	"z.mailspike.net",
 	"hostkarma.junkemailfilter.com",
-	"bl.spamcop.net",
 	"psbl.surriel.com",
 	"dnsbl.sorbs.net",
-	"dnsbl-1.uceprotect.net",
 }
 
 func reverseIP(ip string) string {

@@ -7,7 +7,8 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"time" 
+	"strings"
+	"time"
 )
 
 const geminiBaseURL = "https://generativelanguage.googleapis.com/v1beta"
@@ -81,7 +82,7 @@ func GetGeminiClient() (*GeminiClient, error) {
 		HTTPClient: &http.Client{
 			Timeout: 60 * time.Second,
 		},
-		Model: "gemini-1.5-flash", // Fast and efficient model
+		Model: "gemini-2.0-flash", // Fast and efficient model
 	}
 
 	return geminiClient, nil
@@ -179,4 +180,182 @@ func (c *GeminiClient) ChatSimple(userMessage string, systemPrompt string) (stri
 func (c *GeminiClient) ChatWithContext(history []Message, newMessage string, systemPrompt string) (string, error) {
 	messages := append(history, Message{Role: "user", Content: newMessage})
 	return c.Chat(messages, systemPrompt)
+}
+
+// DetectIntent detects user intent from message
+// Returns: "change_domain", "proceed", "cancel", or "other"
+func (c *GeminiClient) DetectIntent(userMessage string) string {
+	prompt := `You are an intent classifier. Analyze the user's message and respond with ONLY ONE of these exact words:
+
+CHANGE_DOMAIN - if user wants to check/verify/test a different domain, change domain, try another domain, go back, start over, recheck, modify their choice
+PROCEED - if user wants to continue, says yes, confirms, agrees, wants to proceed with current action
+CANCEL - if user wants to stop, exit, cancel, says no, declines
+OTHER - if none of the above, user is asking a question or saying something else
+
+User message: "` + userMessage + `"
+
+Respond with ONLY the intent word (CHANGE_DOMAIN, PROCEED, CANCEL, or OTHER). Nothing else.`
+
+	response, err := c.ChatSimple(prompt, "You are a strict intent classifier. Only respond with one word.")
+	if err != nil {
+		return "other"
+	}
+
+	// Clean and normalize response
+	response = strings.TrimSpace(strings.ToLower(response))
+	
+	switch {
+	case strings.Contains(response, "change_domain"):
+		return "change_domain"
+	case strings.Contains(response, "proceed"):
+		return "proceed"
+	case strings.Contains(response, "cancel"):
+		return "cancel"
+	default:
+		return "other"
+	}
+}
+
+// Intent types for navigation
+type UserIntent string
+
+const (
+	IntentChangeDomain   UserIntent = "change_domain"
+	IntentChangeVolume   UserIntent = "change_volume"
+	IntentChangeDays     UserIntent = "change_days"
+	IntentGoBack         UserIntent = "go_back"
+	IntentProceed        UserIntent = "proceed"
+	IntentCancel         UserIntent = "cancel"
+	IntentOther          UserIntent = "other"
+)
+
+// DetectUserIntent uses quick keyword check first, then AI fallback
+func DetectUserIntent(userMessage string) UserIntent {
+	lower := strings.ToLower(userMessage)
+
+	// STEP 1: Quick keyword check for common patterns (instant response)
+	
+	// Check for domain change keywords
+	domainKeywords := []string{"domain", "website", "site", "url", "another", "different", "new", "other", "start over", "reset", "restart"}
+	changeWords := []string{"change", "modify", "switch", "try", "check", "verify", "test"}
+	
+	hasDomainWord := false
+	for _, kw := range domainKeywords {
+		if strings.Contains(lower, kw) {
+			hasDomainWord = true
+			break
+		}
+	}
+	
+	hasChangeWord := false
+	for _, kw := range changeWords {
+		if strings.Contains(lower, kw) {
+			hasChangeWord = true
+			break
+		}
+	}
+	
+	// Domain change detection
+	if hasDomainWord && hasChangeWord {
+		return IntentChangeDomain
+	}
+	if strings.Contains(lower, "start over") || strings.Contains(lower, "reset") || strings.Contains(lower, "restart") {
+		return IntentChangeDomain
+	}
+	
+	// Volume change detection
+	volumeKeywords := []string{"volume", "email", "target", "emails"}
+	hasVolumeWord := false
+	for _, kw := range volumeKeywords {
+		if strings.Contains(lower, kw) {
+			hasVolumeWord = true
+			break
+		}
+	}
+	// Also detect "need more emails", "want higher volume", "increase target"
+	volumeActionWords := []string{"change", "modify", "more", "less", "increase", "decrease", "need", "want", "different", "adjust", "higher", "lower"}
+	hasVolumeAction := false
+	for _, kw := range volumeActionWords {
+		if strings.Contains(lower, kw) {
+			hasVolumeAction = true
+			break
+		}
+	}
+	if hasVolumeWord && (hasChangeWord || hasVolumeAction) {
+		return IntentChangeVolume
+	}
+	
+	// Days change detection
+	daysKeywords := []string{"days", "day", "warmup", "duration", "period"}
+	hasDaysWord := false
+	for _, kw := range daysKeywords {
+		if strings.Contains(lower, kw) {
+			hasDaysWord = true
+			break
+		}
+	}
+	// Also detect "need more days", "want more days", "increase days"
+	daysActionWords := []string{"change", "modify", "more", "less", "increase", "decrease", "need", "want", "different", "adjust"}
+	hasDaysAction := false
+	for _, kw := range daysActionWords {
+		if strings.Contains(lower, kw) {
+			hasDaysAction = true
+			break
+		}
+	}
+	if hasDaysWord && (hasChangeWord || hasDaysAction) {
+		return IntentChangeDays
+	}
+	
+	// Go back detection
+	backKeywords := []string{"go back", "back", "previous", "undo"}
+	for _, kw := range backKeywords {
+		if strings.Contains(lower, kw) {
+			return IntentGoBack
+		}
+	}
+
+	// STEP 2: AI fallback for complex sentences
+	client, err := GetGeminiClient()
+	if err != nil {
+		return IntentOther
+	}
+
+	prompt := `Classify this user message for a domain warmup chatbot. Respond with ONLY one word:
+
+CHANGE_DOMAIN - wants different domain/website/site
+CHANGE_VOLUME - wants to change email volume/target
+CHANGE_DAYS - wants to change warmup days
+GO_BACK - wants to go back
+OTHER - anything else
+
+Message: "` + userMessage + `"
+
+One word only:`
+
+	response, err := client.ChatSimple(prompt, "Respond with exactly one word.")
+	if err != nil {
+		return IntentOther
+	}
+
+	response = strings.TrimSpace(strings.ToUpper(response))
+
+	switch {
+	case strings.Contains(response, "CHANGE_DOMAIN"):
+		return IntentChangeDomain
+	case strings.Contains(response, "CHANGE_VOLUME"):
+		return IntentChangeVolume
+	case strings.Contains(response, "CHANGE_DAYS"):
+		return IntentChangeDays
+	case strings.Contains(response, "GO_BACK"):
+		return IntentGoBack
+	default:
+		return IntentOther
+	}
+}
+
+// DetectChangeDomainIntent checks if user wants to change/check another domain
+func DetectChangeDomainIntent(userMessage string) bool {
+	intent := DetectUserIntent(userMessage)
+	return intent == IntentChangeDomain
 }
