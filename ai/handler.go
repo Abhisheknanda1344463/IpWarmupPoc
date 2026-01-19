@@ -35,14 +35,15 @@ type ChatRequest struct {
 }
 
 type ChatResponse struct {
-	SessionID  string `json:"session_id"`
-	Reply      string `json:"reply"`
-	Stage      string `json:"stage"`
-	WaitingFor string `json:"waiting_for,omitempty"` // what input we expect next
-	DomainData any    `json:"domain_data,omitempty"` // vetting result if available
-	WarmupPlan any    `json:"warmup_plan,omitempty"` // warmup plan if generated
-	CanProceed bool   `json:"can_proceed"`           // can proceed with warmup?
-	Error      string `json:"error,omitempty"`
+	SessionID   string `json:"session_id"`
+	Reply       string `json:"reply"`
+	Stage       string `json:"stage"`
+	WaitingFor  string `json:"waiting_for,omitempty"`  // what input we expect next
+	DomainData  any    `json:"domain_data,omitempty"`  // vetting result if available
+	WarmupPlan  any    `json:"warmup_plan,omitempty"`  // warmup plan if generated
+	AllowedDays []int  `json:"allowed_days,omitempty"` // allowed warmup days based on score
+	CanProceed  bool   `json:"can_proceed"`            // can proceed with warmup?
+	Error       string `json:"error,omitempty"`
 }
 
 // ============================================================================
@@ -564,7 +565,7 @@ func handleTargetVolume(session *Session, userMessage string) ChatResponse {
 		}
 	}
 
-	// Validate reasonable range
+	// Basic validation - at least 100 emails
 	if volume < 100 {
 		return ChatResponse{
 			SessionID:  session.ID,
@@ -575,26 +576,45 @@ func handleTargetVolume(session *Session, userMessage string) ChatResponse {
 		}
 	}
 
-	if volume > 1000000 {
-		return ChatResponse{
-			SessionID:  session.ID,
-			Reply:      "Target volume seems too high. Please enter a realistic daily volume (up to 1,000,000).",
-			Stage:      "target_volume",
-			WaitingFor: "volume",
-			CanProceed: true,
-		}
-	}
+	// No upper limit - user can enter any volume they want
+	// Days options are determined by score (and volume only for score 76-100)
 
 	session.TargetVolume = volume
 	session.Stage = "warmup_days"
 
+	// Get allowed days based on score and volume
+	allowedDays := GetAllowedWarmupDays(session.Score, volume)
+
+	reply := fmt.Sprintf("📅 **How many days do you want for warmup?**\n\nBased on your domain score (**%d/100**) and target volume (**%s emails/day**), your options are:\n\n**%s**\n\nChoose the duration that fits your timeline.",
+		session.Score,
+		formatNumber(volume),
+		formatDaysOptions(allowedDays))
+
 	return ChatResponse{
-		SessionID:  session.ID,
-		Reply:      GetStageQuestion("warmup_days"),
-		Stage:      session.Stage,
-		WaitingFor: "days",
-		CanProceed: true,
+		SessionID:   session.ID,
+		Reply:       reply,
+		Stage:       session.Stage,
+		WaitingFor:  "days",
+		AllowedDays: allowedDays,
+		CanProceed:  true,
 	}
+}
+
+// formatNumber formats number with commas (e.g., 10000 -> 10,000)
+func formatNumber(n int) string {
+	str := fmt.Sprintf("%d", n)
+	if len(str) <= 3 {
+		return str
+	}
+
+	var result []byte
+	for i, c := range str {
+		if i > 0 && (len(str)-i)%3 == 0 {
+			result = append(result, ',')
+		}
+		result = append(result, byte(c))
+	}
+	return string(result)
 }
 
 func handleWarmupDays(session *Session, userMessage string) ChatResponse {
@@ -617,13 +637,50 @@ func handleWarmupDays(session *Session, userMessage string) ChatResponse {
 
 	days := extractDays(userMessage)
 
-	if days <= 0 || days > 90 {
+	// Get allowed days based on score and target volume
+	allowedDays := GetAllowedWarmupDays(session.Score, session.TargetVolume)
+	minDays := allowedDays[0] // First element is minimum
+
+	if days <= 0 {
+		// Show allowed options
 		return ChatResponse{
 			SessionID:  session.ID,
-			Reply:      "Please enter a valid number of days between 1 and 90. Common options are 14, 21, or 30 days.\n\n💡 *Tip: Say 'go back' to change target volume, or 'change domain' to check another domain.*",
+			Reply:      fmt.Sprintf("Please select warmup days. Based on your domain score (%d/100), your options are: **%s**", session.Score, formatDaysOptions(allowedDays)),
 			Stage:      "warmup_days",
 			WaitingFor: "days",
 			CanProceed: true,
+		}
+	}
+
+	// Check if days is less than minimum allowed - REJECT
+	if days < minDays {
+		return ChatResponse{
+			SessionID:  session.ID,
+			Reply:      fmt.Sprintf("⚠️ **%d days is too short for your domain score (%d/100).**\n\nYour domain needs more time to build reputation safely. Please choose from: **%s**\n\n💡 *Lower scores require longer warmup periods to avoid deliverability issues.*", days, session.Score, formatDaysOptions(allowedDays)),
+			Stage:      "warmup_days",
+			WaitingFor: "days",
+			CanProceed: true,
+		}
+	}
+
+	// Check if days is in the allowed list
+	isAllowed := false
+	for _, d := range allowedDays {
+		if days == d {
+			isAllowed = true
+			break
+		}
+	}
+
+	// If days is NOT in allowed list - show warning and ask to select valid option
+	if !isAllowed {
+		return ChatResponse{
+			SessionID:   session.ID,
+			Reply:       fmt.Sprintf("⚠️ **%d days is not available for your domain score (%d/100).**\n\nBased on your domain reputation score and target volume, you can only select from: **%s**\n\n💡 *Lower domain scores require longer warmup periods to build reputation safely.*\n\nPlease choose one of the available options.", days, session.Score, formatDaysOptions(allowedDays)),
+			Stage:       "warmup_days",
+			WaitingFor:  "days",
+			CanProceed:  true,
+			AllowedDays: allowedDays,
 		}
 	}
 
@@ -664,6 +721,41 @@ func handleWarmupDays(session *Session, userMessage string) ChatResponse {
 		WarmupPlan: warmupData,
 		CanProceed: true,
 	}
+}
+
+// GetAllowedWarmupDays returns allowed warmup days based on domain score and target volume
+func GetAllowedWarmupDays(score int, targetVolume int) []int {
+	switch {
+	case score >= 1 && score <= 25:
+		// Low score: Only 60 days
+		return []int{60}
+	case score >= 26 && score <= 50:
+		// Medium-low score: 45 and 60 days
+		return []int{45, 60}
+	case score >= 51 && score <= 75:
+		// Medium score: 30, 45, and 60 days
+		return []int{30, 45, 60}
+	case score >= 76 && score <= 100:
+		// High score: depends on target volume
+		if targetVolume >= 100000 {
+			// High volume: 30, 45, 60 days
+			return []int{30, 45, 60}
+		}
+		// Low volume: 20, 30, 45, 60 days
+		return []int{20, 30, 45, 60}
+	default:
+		// Default fallback
+		return []int{30, 45, 60}
+	}
+}
+
+// formatDaysOptions formats days array for display
+func formatDaysOptions(days []int) string {
+	options := make([]string, len(days))
+	for i, d := range days {
+		options[i] = fmt.Sprintf("%d days", d)
+	}
+	return strings.Join(options, ", ")
 }
 
 func handleFollowup(session *Session, userMessage string) ChatResponse {

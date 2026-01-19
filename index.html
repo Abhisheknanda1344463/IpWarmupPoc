@@ -786,9 +786,16 @@
         if (data.waiting_for === 'confirmation') {
           showQuickActions(['Yes, create warmup plan', 'Check another domain']);
         } else if (data.waiting_for === 'volume') {
-          showQuickActions(['5,000', '10,000', '25,000', '50,000', 'Go back']);
+          showQuickActions(['5,000', '10,000', '25,000', '50,000', '100,000', 'Go back']);
         } else if (data.waiting_for === 'days') {
-          showQuickActions(['14 days', '21 days', '30 days', 'Go back', 'Change volume']);
+          // Use allowed_days from response if available
+          if (data.allowed_days && data.allowed_days.length > 0) {
+            const dayOptions = data.allowed_days.map(d => d + ' days');
+            dayOptions.push('Go back');
+            showQuickActions(dayOptions);
+          } else {
+            showQuickActions(['30 days', '45 days', '60 days', 'Go back']);
+          }
         } else if (data.waiting_for === 'domain') {
           // Show sample domains for testing
           showQuickActions(['maropost.com', 'google.com', 'sellwithemail.online']);
