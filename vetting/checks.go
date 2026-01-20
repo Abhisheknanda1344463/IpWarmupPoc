@@ -1,9 +1,11 @@
 package vetting
 
 import (
+	"context"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -141,15 +143,44 @@ var domainRBLs = []string{
 
 func checkDomainRBL(domain string) []BlacklistEntry {
 	var results []BlacklistEntry
+	
+	log.Printf("[RBL] Checking domain %s against %d domain RBLs", domain, len(domainRBLs))
 
 	for _, rbl := range domainRBLs {
 		query := domain + "." + rbl
-		_, err := net.LookupHost(query)
-		if err == nil {
-			results = append(results, BlacklistEntry{
-				Source: rbl,
-				Listed: true,
-			})
+		
+		// Use custom resolver with timeout
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		resolver := &net.Resolver{
+			PreferGo: true,
+			Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+				d := net.Dialer{Timeout: 2 * time.Second}
+				return d.DialContext(ctx, "udp", "8.8.8.8:53")
+			},
+		}
+		
+		addrs, err := resolver.LookupHost(ctx, query)
+		cancel()
+		
+		if err == nil && len(addrs) > 0 {
+			// Verify it's a valid RBL response (should be 127.0.0.x)
+			isValidRBLResponse := false
+			for _, addr := range addrs {
+				if strings.HasPrefix(addr, "127.0.0.") {
+					isValidRBLResponse = true
+					break
+				}
+			}
+			
+			if isValidRBLResponse {
+				log.Printf("[RBL] ⚠️ Domain LISTED on %s: %s (response: %v)", rbl, query, addrs)
+				results = append(results, BlacklistEntry{
+					Source: rbl,
+					Listed: true,
+				})
+			} else {
+				log.Printf("[RBL] Ignoring non-standard response from %s: %v", rbl, addrs)
+			}
 		}
 	}
 
@@ -190,20 +221,60 @@ func reverseIP(ip string) string {
 func checkIPRBL(domain string) []BlacklistEntry {
 	ip := LookupIP(domain)
 	if ip == "" {
+		log.Printf("[RBL] Could not resolve IP for domain: %s", domain)
 		return nil
 	}
+	
 	rev := reverseIP(ip)
+	if rev == "" {
+		log.Printf("[RBL] Could not reverse IP: %s for domain: %s", ip, domain)
+		return nil
+	}
+	
+	log.Printf("[RBL] Checking IP %s (reversed: %s) for domain: %s", ip, rev, domain)
 
 	var results []BlacklistEntry
 
 	for _, rbl := range ipRBLs {
 		query := rev + "." + rbl
-		_, err := net.LookupHost(query)
-		if err == nil {
-			results = append(results, BlacklistEntry{
-				Source: rbl,
-				Listed: true,
-			})
+		
+		// Use custom resolver with timeout to avoid cloud DNS issues
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		resolver := &net.Resolver{
+			PreferGo: true,
+			Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+				d := net.Dialer{Timeout: 2 * time.Second}
+				// Use Google's DNS for more reliable results
+				return d.DialContext(ctx, "udp", "8.8.8.8:53")
+			},
+		}
+		
+		addrs, err := resolver.LookupHost(ctx, query)
+		cancel()
+		
+		if err == nil && len(addrs) > 0 {
+			// Verify it's a valid RBL response (should be 127.0.0.x)
+			// False positives can occur if DNS returns unexpected results
+			isValidRBLResponse := false
+			for _, addr := range addrs {
+				if strings.HasPrefix(addr, "127.0.0.") {
+					isValidRBLResponse = true
+					break
+				}
+			}
+			
+			if isValidRBLResponse {
+				log.Printf("[RBL] ⚠️ LISTED on %s: %s (response: %v)", rbl, query, addrs)
+				results = append(results, BlacklistEntry{
+					Source: rbl,
+					Listed: true,
+				})
+			} else {
+				log.Printf("[RBL] Ignoring non-standard RBL response from %s: %v", rbl, addrs)
+			}
+		} else if err != nil {
+			// Not listed (DNS lookup failed = not on blacklist)
+			// This is normal and expected for clean IPs
 		}
 	}
 

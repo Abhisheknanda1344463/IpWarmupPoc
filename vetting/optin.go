@@ -1,10 +1,14 @@
 package vetting
 
 import (
+	"context"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/chromedp/chromedp"
 )
 
 // OptInCheck represents opt-in compliance and security checks
@@ -20,27 +24,128 @@ type SelfAttestedOptIn struct {
 	HasCaptcha bool   `json:"has_captcha,omitempty"`
 }
 
-// CAPTCHA detection patterns
+// CAPTCHA detection patterns - comprehensive list
 var captchaPatterns = map[string]string{
-	"google.com/recaptcha":      "reCAPTCHA",
-	"www.google.com/recaptcha":  "reCAPTCHA",
-	"recaptcha.net":             "reCAPTCHA",
-	"gstatic.com/recaptcha":     "reCAPTCHA",
-	"hcaptcha.com":              "hCaptcha",
+	// Google reCAPTCHA
+	"google.com/recaptcha":     "reCAPTCHA",
+	"www.google.com/recaptcha": "reCAPTCHA",
+	"recaptcha.net":            "reCAPTCHA",
+	"gstatic.com/recaptcha":    "reCAPTCHA",
+	"grecaptcha":               "reCAPTCHA",
+	"g-recaptcha":              "reCAPTCHA",
+	"recaptcha-badge":          "reCAPTCHA v3 (invisible)",
+	"recaptcha_invisible":      "reCAPTCHA v3 (invisible)",
+
+	// hCaptcha
+	"hcaptcha.com": "hCaptcha",
+	"h-captcha":    "hCaptcha",
+
+	// Cloudflare Turnstile
 	"challenges.cloudflare.com": "Cloudflare Turnstile",
 	"turnstile.cloudflare.com":  "Cloudflare Turnstile",
-	"funcaptcha.com":            "FunCaptcha",
-	"arkoselabs.com":            "Arkose Labs",
-	"mtcaptcha.com":             "MTCaptcha",
-	"captcha.com":               "Generic CAPTCHA",
-	"data-sitekey":              "CAPTCHA (sitekey detected)",
-	"g-recaptcha":               "reCAPTCHA",
-	"h-captcha":                 "hCaptcha",
 	"cf-turnstile":              "Cloudflare Turnstile",
+	"cf-chl-widget":             "Cloudflare Challenge",
+
+	// Other CAPTCHAs
+	"funcaptcha.com":  "FunCaptcha",
+	"arkoselabs.com":  "Arkose Labs",
+	"mtcaptcha.com":   "MTCaptcha",
+	"captcha.com":     "Generic CAPTCHA",
+	"data-sitekey":    "CAPTCHA (sitekey detected)",
+	"data-captcha":    "CAPTCHA (data attribute)",
+	"captcha-widget":  "CAPTCHA Widget",
+	"captcha-element": "CAPTCHA Element",
 }
 
-// DetectCaptcha crawls the website and detects if CAPTCHA is present
+// DetectCaptcha detects CAPTCHA using headless Chrome (chromedp)
+// Falls back to HTTP method if chromedp fails
 func DetectCaptcha(domain string) (bool, string) {
+	// Try chromedp first (more accurate, can detect JS-loaded CAPTCHAs)
+	hasCaptcha, captchaType := detectCaptchaWithChromedp(domain)
+	if hasCaptcha {
+		return true, captchaType
+	}
+
+	// Fallback to HTTP method
+	return detectCaptchaWithHTTP(domain)
+}
+
+// detectCaptchaWithChromedp uses headless Chrome to render JS and detect CAPTCHAs
+func detectCaptchaWithChromedp(domain string) (bool, string) {
+	// Create context with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// Create headless Chrome options
+	opts := append(chromedp.DefaultExecAllocatorOptions[:],
+		chromedp.Flag("headless", true),
+		chromedp.Flag("disable-gpu", true),
+		chromedp.Flag("no-sandbox", true),
+		chromedp.Flag("disable-dev-shm-usage", true),
+		chromedp.Flag("disable-extensions", true),
+		chromedp.Flag("disable-background-networking", true),
+		chromedp.UserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"),
+	)
+
+	allocCtx, allocCancel := chromedp.NewExecAllocator(ctx, opts...)
+	defer allocCancel()
+
+	browserCtx, browserCancel := chromedp.NewContext(allocCtx, chromedp.WithLogf(log.Printf))
+	defer browserCancel()
+
+	// URLs to check
+	urls := []string{
+		"https://" + domain,
+		"https://www." + domain,
+		"https://" + domain + "/signup",
+		"https://" + domain + "/register",
+		"https://" + domain + "/contact",
+	}
+
+	for _, url := range urls {
+		hasCaptcha, captchaType := checkURLWithChromedp(browserCtx, url)
+		if hasCaptcha {
+			return true, captchaType
+		}
+	}
+
+	return false, ""
+}
+
+// checkURLWithChromedp loads a URL and checks for CAPTCHA in rendered HTML
+func checkURLWithChromedp(ctx context.Context, url string) (bool, string) {
+	var htmlContent string
+
+	// Create a timeout context for this specific URL
+	urlCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	// Navigate and get HTML
+	err := chromedp.Run(urlCtx,
+		chromedp.Navigate(url),
+		chromedp.WaitReady("body"),
+		chromedp.Sleep(2*time.Second), // Wait for JS to execute
+		chromedp.OuterHTML("html", &htmlContent),
+	)
+
+	if err != nil {
+		// URL might not be accessible, continue to next
+		return false, ""
+	}
+
+	// Check for CAPTCHA patterns in rendered HTML
+	htmlLower := strings.ToLower(htmlContent)
+	for pattern, captchaType := range captchaPatterns {
+		if strings.Contains(htmlLower, strings.ToLower(pattern)) {
+			return true, captchaType
+		}
+	}
+
+	return false, ""
+}
+
+// detectCaptchaWithHTTP is the fallback HTTP-based detection
+func detectCaptchaWithHTTP(domain string) (bool, string) {
 	client := &http.Client{
 		Timeout: 10 * time.Second,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
@@ -51,7 +156,6 @@ func DetectCaptcha(domain string) (bool, string) {
 		},
 	}
 
-	// Try multiple URLs
 	urls := []string{
 		"https://" + domain,
 		"https://www." + domain,
@@ -63,7 +167,7 @@ func DetectCaptcha(domain string) (bool, string) {
 	}
 
 	for _, url := range urls {
-		hasCaptcha, captchaType := checkURLForCaptcha(client, url)
+		hasCaptcha, captchaType := checkURLForCaptchaHTTP(client, url)
 		if hasCaptcha {
 			return true, captchaType
 		}
@@ -72,14 +176,13 @@ func DetectCaptcha(domain string) (bool, string) {
 	return false, ""
 }
 
-// checkURLForCaptcha checks a single URL for CAPTCHA presence
-func checkURLForCaptcha(client *http.Client, url string) (bool, string) {
+// checkURLForCaptchaHTTP checks a single URL for CAPTCHA presence using HTTP
+func checkURLForCaptchaHTTP(client *http.Client, url string) (bool, string) {
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return false, ""
 	}
 
-	// Set user agent to avoid being blocked
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
 	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
 
@@ -89,12 +192,10 @@ func checkURLForCaptcha(client *http.Client, url string) (bool, string) {
 	}
 	defer resp.Body.Close()
 
-	// Only check successful responses
 	if resp.StatusCode >= 400 {
 		return false, ""
 	}
 
-	// Read body (limit to 1MB to avoid large files)
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1024*1024))
 	if err != nil {
 		return false, ""
@@ -102,7 +203,6 @@ func checkURLForCaptcha(client *http.Client, url string) (bool, string) {
 
 	bodyLower := strings.ToLower(string(body))
 
-	// Check for CAPTCHA patterns
 	for pattern, captchaType := range captchaPatterns {
 		if strings.Contains(bodyLower, strings.ToLower(pattern)) {
 			return true, captchaType
