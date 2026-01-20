@@ -1,5 +1,5 @@
 # Build stage
-FROM golang:1.23-alpine AS builder
+FROM golang:1.24-alpine AS builder
 
 WORKDIR /app
 
@@ -18,8 +18,11 @@ FROM alpine:latest
 
 WORKDIR /app
 
-# Install ca-certificates for HTTPS calls
-RUN apk --no-cache add ca-certificates
+# Install ca-certificates for HTTPS calls and Chromium for CAPTCHA detection
+RUN apk --no-cache add ca-certificates chromium
+
+# Set Chromium path for chromedp
+ENV CHROME_PATH=/usr/bin/chromium-browser
 
 # Copy binary from builder
 COPY --from=builder /app/main .
