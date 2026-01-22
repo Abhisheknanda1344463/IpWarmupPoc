@@ -84,7 +84,9 @@ func CalculateScoreV2(
 		weightDMARCPolicyNone = 10 // p=none is weak policy
 		// Traffic score removed - no real API integrated yet
 		// Opt-in compliance is now CRITICAL (reject), not penalty
-		weightNoCaptcha = 50 // IMPORTANT: no captcha = exposed to bots
+		// COMMENTED OUT per Naksh - CAPTCHA detection might not be accurate
+		// Will discuss with Manny to decide if we keep or remove this check
+		// weightNoCaptcha = 50 // IMPORTANT: no captcha = exposed to bots
 	)
 
 	// Domain age
@@ -129,12 +131,14 @@ func CalculateScoreV2(
 
 	// Opt-in compliance is now CRITICAL (rejection), handled in handlers.go
 
+	// COMMENTED OUT per Naksh - CAPTCHA detection might not be accurate
+	// Will discuss with Manny to decide if we keep or remove this check
 	// CAPTCHA is IMPORTANT - no captcha = exposed to bots (-50)
-	if !optIn.HasCaptcha {
-		penalty := weightNoCaptcha
-		score -= penalty
-		breakdown.NoCaptcha = penalty
-	}
+	// if !optIn.HasCaptcha {
+	// 	penalty := weightNoCaptcha
+	// 	score -= penalty
+	// 	breakdown.NoCaptcha = penalty
+	// }
 
 	// Calculate total penalties
 	breakdown.TotalPenalties = 100 - score
@@ -340,12 +344,14 @@ func CalculateScoreWithWeights(
 		score -= penalty
 		breakdown.OptInNonCompliant = penalty
 	}
+	// COMMENTED OUT per Naksh - CAPTCHA detection might not be accurate
+	// Will discuss with Manny to decide if we keep or remove this check
 	// CAPTCHA is a security enhancement
-	if !optIn.HasCaptcha {
-		penalty := weightNoCaptcha
-		score -= penalty
-		breakdown.NoCaptcha = penalty
-	}
+	// if !optIn.HasCaptcha {
+	// 	penalty := weightNoCaptcha
+	// 	score -= penalty
+	// 	breakdown.NoCaptcha = penalty
+	// }
 
 	// Calculate total penalties
 	breakdown.TotalPenalties = 100 - score

@@ -931,16 +931,18 @@
         });
       }
 
+      // COMMENTED OUT per Naksh - CAPTCHA detection might not be accurate
+      // Will discuss with Manny to decide if we keep or remove this check
       // Check CAPTCHA
-      const optin = domainData.optin || {};
-      if (!optin.has_captcha) {
-        warnings.push({
-          type: 'important',
-          icon: '🟡',
-          title: 'No CAPTCHA Detected',
-          text: 'Website may be exposed to bots and spam. Consider adding reCAPTCHA or hCaptcha.'
-        });
-      }
+      // const optin = domainData.optin || {};
+      // if (!optin.has_captcha) {
+      //   warnings.push({
+      //     type: 'important',
+      //     icon: '🟡',
+      //     title: 'No CAPTCHA Detected',
+      //     text: 'Website may be exposed to bots and spam. Consider adding reCAPTCHA or hCaptcha.'
+      //   });
+      // }
 
       // Build warnings HTML
       if (warnings.length > 0 && !isRejected) {

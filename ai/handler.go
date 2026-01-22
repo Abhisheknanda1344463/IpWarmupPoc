@@ -946,12 +946,14 @@ Raw Plan Data (day and daily email limit):
 %s
 
 Instructions:
-- Summarize the plan in phases (early days, middle, ramp-up)
-- Highlight key milestones
-- Add practical tips based on the domain score
-- Keep it concise but informative
-- Use emojis sparingly for visual appeal`,
-		session.Domain, session.Score, session.ScoreLabel, session.WarmupDays, planKey, string(planJSON))
+- Show a SIMPLE LIST from Day 1 to Day %d
+- Do NOT group by week - just show a plain continuous list
+- Show EVERY single day with its email limit - do NOT skip any days
+- Format: "• Day X: Y emails" for each day
+- Format numbers with commas for readability (e.g., 10,000 instead of 10000)
+- Add 2-3 practical tips at the end
+- Use emojis sparingly`,
+		session.Domain, session.Score, session.ScoreLabel, session.WarmupDays, planKey, string(planJSON), session.WarmupDays)
 
 	response, err := client.ChatSimple(prompt, SystemPrompt)
 	if err != nil {
@@ -1019,7 +1021,7 @@ func generateCombinedResponseWithData(session *Session, vettingData map[string]a
 	prompt := fmt.Sprintf(`User asked for warmup plan for domain %s for %d days. Provide a SINGLE COMBINED response:
 
 1. BRIEF domain health check (2-3 lines) - Score: %d/100 (%s)
-2. Directly present the %d-day warmup plan
+2. Directly present the COMPLETE %d-day warmup plan
 
 Domain Data:
 %s
@@ -1029,11 +1031,15 @@ Warmup Plan Data (day and daily limit):
 
 Instructions:
 - Keep domain analysis SHORT (user wants quick results)
-- Show plan in phases with key milestones
+- Show a SIMPLE LIST from Day 1 to Day %d
+- Do NOT group by week - just show a plain continuous list
+- Show EVERY single day with its email limit - do NOT skip any days
+- Format: "• Day X: Y emails" for each day
+- Format numbers with commas for readability (e.g., 10,000 instead of 10000)
 - Add 2-3 practical tips at end
 - Use emojis sparingly`,
 		session.Domain, session.WarmupDays, session.Score, session.ScoreLabel, session.WarmupDays,
-		string(vettingJSON), string(planJSON))
+		string(vettingJSON), string(planJSON), session.WarmupDays)
 
 	response, err := client.ChatSimple(prompt, SystemPrompt)
 	if err != nil {
@@ -1085,50 +1091,18 @@ func formatWarmupPlanFallback(session *Session, warmupData map[string]any) strin
 	if planData, ok := warmupData[planKey].([]any); ok {
 		plan += "**Daily Email Limits:**\n"
 
-		// Show first week in detail
-		plan += "\n*Week 1 (Warmup Start):*\n"
-		for i := 0; i < 7 && i < len(planData) && i < session.WarmupDays; i++ {
-			if dayData, ok := planData[i].(map[string]any); ok {
+		// Calculate total days
+		totalDays := session.WarmupDays
+		if totalDays > len(planData) {
+			totalDays = len(planData)
+		}
+
+		// Show ALL days in a simple list - no week grouping
+		for dayIdx := 0; dayIdx < totalDays; dayIdx++ {
+			if dayData, ok := planData[dayIdx].(map[string]any); ok {
 				day := int(dayData["day"].(float64))
 				limit := int(dayData["limit"].(float64))
-				plan += fmt.Sprintf("• Day %d: %d emails\n", day, limit)
-			}
-		}
-
-		// Show week 2 summary
-		if session.WarmupDays > 7 {
-			plan += "\n*Week 2:*\n"
-			for i := 7; i < 14 && i < len(planData) && i < session.WarmupDays; i++ {
-				if dayData, ok := planData[i].(map[string]any); ok {
-					day := int(dayData["day"].(float64))
-					limit := int(dayData["limit"].(float64))
-					plan += fmt.Sprintf("• Day %d: %d emails\n", day, limit)
-				}
-			}
-		}
-
-		// Show remaining milestones
-		if session.WarmupDays > 14 {
-			plan += "\n*Key Milestones:*\n"
-			milestones := []int{21, 30, 45, 60}
-			for _, m := range milestones {
-				if m <= session.WarmupDays && m <= len(planData) {
-					if dayData, ok := planData[m-1].(map[string]any); ok {
-						limit := int(dayData["limit"].(float64))
-						plan += fmt.Sprintf("• Day %d: %d emails\n", m, limit)
-					}
-				}
-			}
-		}
-
-		// Final day
-		if session.WarmupDays > 1 {
-			finalIdx := session.WarmupDays - 1
-			if finalIdx < len(planData) {
-				if dayData, ok := planData[finalIdx].(map[string]any); ok {
-					limit := int(dayData["limit"].(float64))
-					plan += fmt.Sprintf("\n🎯 **Final Day %d Target: %d emails**\n", session.WarmupDays, limit)
-				}
+				plan += fmt.Sprintf("• Day %d: %s emails\n", day, formatNumber(limit))
 			}
 		}
 	}

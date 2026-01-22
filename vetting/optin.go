@@ -58,23 +58,39 @@ var captchaPatterns = map[string]string{
 	"captcha-element": "CAPTCHA Element",
 }
 
-// DetectCaptcha detects CAPTCHA using headless Chrome (chromedp)
-// Falls back to HTTP method if chromedp fails
+// DetectCaptcha detects CAPTCHA - HTTP first (fast), chromedp as fallback
+// This is production-optimized: fast HTTP check handles most cases,
+// chromedp only used when HTTP doesn't find anything (for JS-loaded CAPTCHAs)
 func DetectCaptcha(domain string) (bool, string) {
-	// Try chromedp first (more accurate, can detect JS-loaded CAPTCHAs)
-	hasCaptcha, captchaType := detectCaptchaWithChromedp(domain)
+	// Step 1: Try HTTP first (fast, lightweight, handles 70%+ cases)
+	hasCaptcha, captchaType := detectCaptchaWithHTTP(domain)
 	if hasCaptcha {
+		log.Printf("[CAPTCHA] ✅ Found via HTTP: %s on %s", captchaType, domain)
 		return true, captchaType
 	}
 
-	// Fallback to HTTP method
-	return detectCaptchaWithHTTP(domain)
+	// Step 2: If HTTP didn't find CAPTCHA, try chromedp (for JS-loaded CAPTCHAs)
+	// Skip chromedp in low-resource environments (set SKIP_CHROMEDP=true)
+	if os.Getenv("SKIP_CHROMEDP") == "true" {
+		log.Printf("[CAPTCHA] Skipping chromedp check (SKIP_CHROMEDP=true)")
+		return false, ""
+	}
+
+	log.Printf("[CAPTCHA] HTTP didn't find CAPTCHA, trying chromedp for %s", domain)
+	hasCaptcha, captchaType = detectCaptchaWithChromedp(domain)
+	if hasCaptcha {
+		log.Printf("[CAPTCHA] ✅ Found via chromedp: %s on %s", captchaType, domain)
+		return true, captchaType
+	}
+
+	log.Printf("[CAPTCHA] ❌ No CAPTCHA found on %s", domain)
+	return false, ""
 }
 
 // detectCaptchaWithChromedp uses headless Chrome to render JS and detect CAPTCHAs
 func detectCaptchaWithChromedp(domain string) (bool, string) {
-	// Create context with timeout
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	// Create context with timeout (15s max for production)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
 	// Create headless Chrome options
