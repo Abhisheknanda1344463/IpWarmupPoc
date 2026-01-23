@@ -33,15 +33,20 @@ RULES:
 const StageGreetingPrompt = `Generate a brief, friendly greeting asking the user to enter their domain name for reputation check. Keep it under 2 sentences.`
 
 // Stage: analyzing_domain - When vetting data arrives
-const StageAnalyzingPrompt = `You received domain vetting data. Analyze and explain:
-1. Overall reputation score and what it means
-2. Key findings (good and bad)
-3. Simple recommendation
+const StageAnalyzingPrompt = `You received domain vetting data. Provide a score-based message:
+
+For score 80-100: "✅ **Excellent!** Your domain is in strong shape, but a warm-up is still recommended to avoid sudden volume spikes."
+For score 50-79: "👍 Your domain looks decent, but gradual warm-up will significantly improve inbox placement."
+For score below 50: "⚠️ Your domain needs careful warming to build trust with mailbox providers. We'll guide you step-by-step."
 
 Vetting Data:
 %s
 
-Keep explanation simple and under 5 sentences. End by asking if they want to proceed with warmup planning (only if score is not Poor/Critical).`
+IMPORTANT:
+- Use ONLY the appropriate message based on the score (1 sentence only)
+- Do NOT add any follow-up question or confirmation
+- Do NOT mention "We'll use domain for warm-up planning" - this is added separately
+- Keep it to just the score-based message - nothing more`
 
 // Stage: ask_warmup_days - Ask for warmup duration
 const StageWarmupDaysPrompt = `The user wants to proceed with warmup. Ask them how many days they want for their warmup plan. Suggest 14, 21, or 30 days as common options. Keep it brief.`
@@ -76,17 +81,17 @@ type QuestionFlow struct {
 var ChatFlow = []QuestionFlow{
 	{
 		Stage:       "greeting",
-		Question:    "👋 Hi! I'm your Warmup Assistant. Enter your domain to check its reputation.",
+		Question:    "👋 Hi! I'll help you create a safe and effective email domain warm-up plan.\n\nI'll ask you a few quick questions, analyze your domain reputation, and then generate a personalized warm-up schedule.\n\nFirst, please share the domain name you plan to send emails from.\n*(Example: yourcompany.com)*",
 		ExpectsType: "domain",
 	},
 	{
 		Stage:       "target_volume",
-		Question:    "📊 What **per day email volume** do you want to target?\n\nEnter the number of emails you want to send daily after warmup (e.g., 5000, 10000, 50000):",
+		Question:    "📊 Great! After the warm-up, how many emails do you plan to send per day from this domain?\n\n*(Enter your target volume, e.g., 5000)*",
 		ExpectsType: "volume",
 	},
 	{
 		Stage:       "warmup_days",
-		Question:    "⏱️ How many **days** would you like for your warmup plan?\n\nCommon options: 14, 21, or 30 days",
+		Question:    "📅 Based on your domain score and target sending volume, here are the recommended warm-up durations.",
 		ExpectsType: "days",
 	},
 }

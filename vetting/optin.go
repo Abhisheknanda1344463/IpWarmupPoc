@@ -240,17 +240,19 @@ func EvaluateOptIn(selfAttested *SelfAttestedOptIn, domain string) OptInCheck {
 	// Compliance is default true for now (will be discussed with client later)
 	compliance := true
 
+	// COMMENTED OUT per Naksh - CAPTCHA detection might not be accurate
+	// Will discuss with Manny to decide if we keep or remove this check
 	// Real-time CAPTCHA detection
-	hasCaptcha, _ := DetectCaptcha(domain)
-
-	warning := ""
-	if !hasCaptcha {
-		warning = "WARNING: No CAPTCHA detected on the website. Domain may be exposed to bots, spam, and automated attacks. Consider implementing reCAPTCHA, hCaptcha, or Cloudflare Turnstile."
-	}
+	// hasCaptcha, _ := DetectCaptcha(domain)
+	//
+	// warning := ""
+	// if !hasCaptcha {
+	// 	warning = "WARNING: No CAPTCHA detected on the website. Domain may be exposed to bots, spam, and automated attacks. Consider implementing reCAPTCHA, hCaptcha, or Cloudflare Turnstile."
+	// }
 
 	return OptInCheck{
 		Compliance:     compliance,
-		HasCaptcha:     hasCaptcha,
-		CaptchaWarning: warning,
+		HasCaptcha:     true, // Default to true since we're not checking
+		CaptchaWarning: "",
 	}
 }

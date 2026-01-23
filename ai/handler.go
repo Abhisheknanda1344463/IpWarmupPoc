@@ -35,15 +35,16 @@ type ChatRequest struct {
 }
 
 type ChatResponse struct {
-	SessionID   string `json:"session_id"`
-	Reply       string `json:"reply"`
-	Stage       string `json:"stage"`
-	WaitingFor  string `json:"waiting_for,omitempty"`  // what input we expect next
-	DomainData  any    `json:"domain_data,omitempty"`  // vetting result if available
-	WarmupPlan  any    `json:"warmup_plan,omitempty"`  // warmup plan if generated
-	AllowedDays []int  `json:"allowed_days,omitempty"` // allowed warmup days based on score
-	CanProceed  bool   `json:"can_proceed"`            // can proceed with warmup?
-	Error       string `json:"error,omitempty"`
+	SessionID       string `json:"session_id"`
+	Reply           string `json:"reply"`
+	Stage           string `json:"stage"`
+	WaitingFor      string `json:"waiting_for,omitempty"`       // what input we expect next
+	DomainData      any    `json:"domain_data,omitempty"`       // vetting result if available
+	WarmupPlan      any    `json:"warmup_plan,omitempty"`       // warmup plan if generated
+	AllowedDays     []int  `json:"allowed_days,omitempty"`      // allowed warmup days based on score
+	FollowupMessage string `json:"followup_message,omitempty"`  // separate message to show after domain card
+	CanProceed      bool   `json:"can_proceed"`                 // can proceed with warmup?
+	Error           string `json:"error,omitempty"`
 }
 
 // ============================================================================
@@ -190,6 +191,10 @@ func processChat(session *Session, userMessage string) ChatResponse {
 	case "warmup_days":
 		// User provides warmup days
 		response = handleWarmupDays(session, userMessage)
+
+	case "confirm_summary":
+		// User confirms summary before generating plan
+		response = handleConfirmSummary(session, userMessage)
 
 	case "plan_generated":
 		// Follow-up questions after plan
@@ -338,13 +343,17 @@ func handleDomainInput(session *Session, userMessage string) ChatResponse {
 	aiResponse := getAIAnalysis(session, vettingData)
 	session.Stage = "domain_analyzed"
 
+	// Followup message shown separately after domain card
+	followupMsg := fmt.Sprintf("We'll use **%s** for the rest of the warm-up planning.", session.Domain)
+
 	return ChatResponse{
-		SessionID:  session.ID,
-		Reply:      aiResponse,
-		Stage:      session.Stage,
-		WaitingFor: "confirmation",
-		DomainData: vettingData,
-		CanProceed: true, // Always true for non-rejected domains
+		SessionID:       session.ID,
+		Reply:           aiResponse,
+		Stage:           session.Stage,
+		WaitingFor:      "confirmation",
+		DomainData:      vettingData,
+		FollowupMessage: followupMsg,
+		CanProceed:      true, // Always true for non-rejected domains
 	}
 }
 
@@ -386,7 +395,7 @@ func handleWarmupConfirmation(session *Session, userMessage string) ChatResponse
 		session.Stage = "greeting"
 		return ChatResponse{
 			SessionID:  session.ID,
-			Reply:      "Sure! Please enter the domain you'd like to check:",
+			Reply:      "Sure! Please share the domain name you plan to send emails from.\n*(Example: yourcompany.com)*",
 			Stage:      "greeting",
 			WaitingFor: "domain",
 			CanProceed: true,
@@ -395,8 +404,8 @@ func handleWarmupConfirmation(session *Session, userMessage string) ChatResponse
 
 	// Check for explicit positive/negative words as fallback
 	lower := strings.ToLower(userMessage)
-	positiveWords := []string{"yes", "yeah", "yep", "sure", "ok", "okay", "proceed", "continue", "warmup", "warm up", "plan", "create", "haan", "ha", "ji"}
-	negativeWords := []string{"no", "nope", "nah", "cancel", "stop", "exit", "nahi", "na"}
+	positiveWords := []string{"yes", "yeah", "yep", "sure", "ok", "okay", "proceed", "continue", "warmup", "warm up", "plan", "create", "haan", "ha", "ji", "let's go", "go ahead"}
+	negativeWords := []string{"no", "nope", "nah", "cancel", "stop", "exit", "nahi", "na", "check another", "another domain"}
 
 	isPositive := false
 	isNegative := false
@@ -419,7 +428,7 @@ func handleWarmupConfirmation(session *Session, userMessage string) ChatResponse
 		session.Stage = "greeting"
 		return ChatResponse{
 			SessionID:  session.ID,
-			Reply:      "No problem! Would you like to check another domain? Just enter a domain name.",
+			Reply:      "Sure! Please share the domain name you plan to send emails from.\n*(Example: yourcompany.com)*",
 			Stage:      session.Stage,
 			WaitingFor: "domain",
 			CanProceed: true,
@@ -438,10 +447,10 @@ func handleWarmupConfirmation(session *Session, userMessage string) ChatResponse
 		}
 	}
 
-	// Unclear response - ask again with all options
+	// Unclear response - ask again with options
 	return ChatResponse{
 		SessionID:  session.ID,
-		Reply:      "What would you like to do?\n\n• Say **'yes'** to create a warmup plan\n• Or enter a new domain to verify",
+		Reply:      fmt.Sprintf("We'll use **%s** for the rest of the warm-up planning.\n\nWhat would you like to do?", session.Domain),
 		Stage:      session.Stage,
 		WaitingFor: "confirmation",
 		CanProceed: true,
@@ -475,7 +484,7 @@ func goBackToDomain(session *Session) ChatResponse {
 
 	return ChatResponse{
 		SessionID:  session.ID,
-		Reply:      "Sure! Please enter the domain you'd like to check:",
+		Reply:      "Sure! Please share the domain name you plan to send emails from.\n*(Example: yourcompany.com)*",
 		Stage:      "greeting",
 		WaitingFor: "domain",
 		CanProceed: true,
@@ -490,7 +499,7 @@ func goBackToDomainAnalysis(session *Session) ChatResponse {
 
 	return ChatResponse{
 		SessionID:  session.ID,
-		Reply:      fmt.Sprintf("Back to domain analysis for **%s** (Score: %d/100).\n\nWould you like to create a warmup plan, or check a different domain?", session.Domain, session.Score),
+		Reply:      fmt.Sprintf("We'll use **%s** for the rest of the warm-up planning.", session.Domain),
 		Stage:      "domain_analyzed",
 		WaitingFor: "confirmation",
 		DomainData: session.VettingData,
@@ -503,14 +512,9 @@ func goBackToTargetVolume(session *Session) ChatResponse {
 	session.WarmupDays = 0
 	session.Stage = "target_volume"
 
-	currentVolume := ""
-	if session.TargetVolume > 0 {
-		currentVolume = fmt.Sprintf("\n\n*Current target: %d emails/day*", session.TargetVolume)
-	}
-
 	return ChatResponse{
 		SessionID:  session.ID,
-		Reply:      fmt.Sprintf("Sure! What daily email volume do you want to target?%s\n\n💡 *Tip: Say 'go back' to return to domain analysis.*", currentVolume),
+		Reply:      "📊 Great! After the warm-up, how many emails do you plan to send per day from this domain?\n\n*(Enter your target volume, e.g., 5000)*",
 		Stage:      "target_volume",
 		WaitingFor: "volume",
 		CanProceed: true,
@@ -521,17 +525,16 @@ func goBackToTargetVolume(session *Session) ChatResponse {
 func goBackToWarmupDays(session *Session) ChatResponse {
 	session.Stage = "warmup_days"
 
-	currentDays := ""
-	if session.WarmupDays > 0 {
-		currentDays = fmt.Sprintf("\n\n*Current: %d days*", session.WarmupDays)
-	}
+	// Get allowed days based on score and volume
+	allowedDays := GetAllowedWarmupDays(session.Score, session.TargetVolume)
 
 	return ChatResponse{
-		SessionID:  session.ID,
-		Reply:      fmt.Sprintf("Sure! How many days do you want for warmup?%s\n\n💡 *Tip: Say 'go back' to change target volume.*", currentDays),
-		Stage:      "warmup_days",
-		WaitingFor: "days",
-		CanProceed: true,
+		SessionID:   session.ID,
+		Reply:       fmt.Sprintf("📅 **Based on your domain score and target sending volume, here are the recommended warm-up durations:**\n\n**%s**\n\nSelect the duration that fits your timeline.", formatDaysOptions(allowedDays)),
+		Stage:       "warmup_days",
+		WaitingFor:  "days",
+		AllowedDays: allowedDays,
+		CanProceed:  true,
 	}
 }
 
@@ -558,7 +561,7 @@ func handleTargetVolume(session *Session, userMessage string) ChatResponse {
 	if volume <= 0 {
 		return ChatResponse{
 			SessionID:  session.ID,
-			Reply:      "Please enter a valid target volume (e.g., 5000, 10000, 50000).\n\n💡 *Tip: Say 'go back' to return to domain analysis, or enter a new domain to check.*",
+			Reply:      "Please enter a valid target volume (e.g., 5000, 10000, 50000).",
 			Stage:      "target_volume",
 			WaitingFor: "volume",
 			CanProceed: true,
@@ -585,9 +588,7 @@ func handleTargetVolume(session *Session, userMessage string) ChatResponse {
 	// Get allowed days based on score and volume
 	allowedDays := GetAllowedWarmupDays(session.Score, volume)
 
-	reply := fmt.Sprintf("📅 **How many days do you want for warmup?**\n\nBased on your domain score (**%d/100**) and target volume (**%s emails/day**), your options are:\n\n**%s**\n\nChoose the duration that fits your timeline.",
-		session.Score,
-		formatNumber(volume),
+	reply := fmt.Sprintf("📅 **Based on your domain score and target sending volume, here are the recommended warm-up durations:**\n\n**%s**\n\nSelect the duration that fits your timeline.",
 		formatDaysOptions(allowedDays))
 
 	return ChatResponse{
@@ -644,22 +645,24 @@ func handleWarmupDays(session *Session, userMessage string) ChatResponse {
 	if days <= 0 {
 		// Show allowed options
 		return ChatResponse{
-			SessionID:  session.ID,
-			Reply:      fmt.Sprintf("Please select warmup days. Based on your domain score (%d/100), your options are: **%s**", session.Score, formatDaysOptions(allowedDays)),
-			Stage:      "warmup_days",
-			WaitingFor: "days",
-			CanProceed: true,
+			SessionID:   session.ID,
+			Reply:       fmt.Sprintf("Please select a warm-up duration: **%s**", formatDaysOptions(allowedDays)),
+			Stage:       "warmup_days",
+			WaitingFor:  "days",
+			AllowedDays: allowedDays,
+			CanProceed:  true,
 		}
 	}
 
 	// Check if days is less than minimum allowed - REJECT
 	if days < minDays {
 		return ChatResponse{
-			SessionID:  session.ID,
-			Reply:      fmt.Sprintf("⚠️ **%d days is too short for your domain score (%d/100).**\n\nYour domain needs more time to build reputation safely. Please choose from: **%s**\n\n💡 *Lower scores require longer warmup periods to avoid deliverability issues.*", days, session.Score, formatDaysOptions(allowedDays)),
-			Stage:      "warmup_days",
-			WaitingFor: "days",
-			CanProceed: true,
+			SessionID:   session.ID,
+			Reply:       fmt.Sprintf("⚠️ **%d days is too short for your domain score (%d/100).**\n\nPlease choose from: **%s**", days, session.Score, formatDaysOptions(allowedDays)),
+			Stage:       "warmup_days",
+			WaitingFor:  "days",
+			AllowedDays: allowedDays,
+			CanProceed:  true,
 		}
 	}
 
@@ -676,49 +679,98 @@ func handleWarmupDays(session *Session, userMessage string) ChatResponse {
 	if !isAllowed {
 		return ChatResponse{
 			SessionID:   session.ID,
-			Reply:       fmt.Sprintf("⚠️ **%d days is not available for your domain score (%d/100).**\n\nBased on your domain reputation score and target volume, you can only select from: **%s**\n\n💡 *Lower domain scores require longer warmup periods to build reputation safely.*\n\nPlease choose one of the available options.", days, session.Score, formatDaysOptions(allowedDays)),
+			Reply:       fmt.Sprintf("⚠️ **%d days is not available.** Please choose from: **%s**", days, formatDaysOptions(allowedDays)),
 			Stage:       "warmup_days",
 			WaitingFor:  "days",
-			CanProceed:  true,
 			AllowedDays: allowedDays,
+			CanProceed:  true,
 		}
 	}
 
 	session.WarmupDays = days
+	session.Stage = "confirm_summary"
 
-	// Use target volume from session (default 10000 if not set)
-	targetVolume := session.TargetVolume
-	if targetVolume <= 0 {
-		targetVolume = 10000
+	// Show summary card before generating plan
+	summaryMsg := fmt.Sprintf("📋 **Summary**\n\n"+
+		"**Domain:** %s\n"+
+		"**Domain Score:** %d / 100\n"+
+		"**Target Daily Emails:** %s\n"+
+		"**Warm-up Duration:** %d days\n\n"+
+		"Would you like me to generate your personalized domain warm-up plan now?",
+		session.Domain,
+		session.Score,
+		formatNumber(session.TargetVolume),
+		session.WarmupDays)
+
+	return ChatResponse{
+		SessionID:  session.ID,
+		Reply:      summaryMsg,
+		Stage:      session.Stage,
+		WaitingFor: "generate_confirmation",
+		CanProceed: true,
+	}
+}
+
+// handleConfirmSummary handles user confirmation of summary before generating plan
+func handleConfirmSummary(session *Session, userMessage string) ChatResponse {
+	lower := strings.ToLower(userMessage)
+
+	// Check if user wants to edit answers
+	if strings.Contains(lower, "edit") || strings.Contains(lower, "change") || strings.Contains(lower, "go back") || strings.Contains(lower, "back") {
+		// Go back to warmup days selection
+		return goBackToWarmupDays(session)
 	}
 
-	// Call the actual warmup API with target volume
-	warmupData, err := callWarmupAPIWithVolume(targetVolume, days)
-	if err != nil {
-		// Fallback to AI-generated plan if API fails
-		plan := generateWarmupPlan(session)
+	// Check if user wants to generate plan
+	positiveWords := []string{"yes", "yeah", "yep", "sure", "ok", "okay", "generate", "create", "proceed", "haan", "ha", "ji"}
+	isPositive := false
+	for _, word := range positiveWords {
+		if strings.Contains(lower, word) {
+			isPositive = true
+			break
+		}
+	}
+
+	if isPositive {
+		// Generate the warmup plan
+		targetVolume := session.TargetVolume
+		if targetVolume <= 0 {
+			targetVolume = 10000
+		}
+
+		warmupData, err := callWarmupAPIWithVolume(targetVolume, session.WarmupDays)
+		if err != nil {
+			plan := generateWarmupPlan(session)
+			session.Stage = "plan_generated"
+			return ChatResponse{
+				SessionID:  session.ID,
+				Reply:      plan,
+				Stage:      session.Stage,
+				WaitingFor: "freetext",
+				WarmupPlan: buildWarmupPlanData(session),
+				CanProceed: true,
+			}
+		}
+
+		plan := formatWarmupPlanWithAI(session, warmupData)
 		session.Stage = "plan_generated"
+
 		return ChatResponse{
 			SessionID:  session.ID,
 			Reply:      plan,
 			Stage:      session.Stage,
 			WaitingFor: "freetext",
-			WarmupPlan: buildWarmupPlanData(session),
+			WarmupPlan: warmupData,
 			CanProceed: true,
 		}
 	}
 
-	// Format the warmup plan using AI with actual data
-	plan := formatWarmupPlanWithAI(session, warmupData)
-
-	session.Stage = "plan_generated"
-
+	// Unclear response
 	return ChatResponse{
 		SessionID:  session.ID,
-		Reply:      plan,
+		Reply:      "Would you like me to generate your warm-up plan?",
 		Stage:      session.Stage,
-		WaitingFor: "freetext",
-		WarmupPlan: warmupData,
+		WaitingFor: "generate_confirmation",
 		CanProceed: true,
 	}
 }
@@ -1120,24 +1172,19 @@ func formatWarmupPlanFallback(session *Session, warmupData map[string]any) strin
 // ============================================================================
 
 func generateFallbackAnalysis(session *Session) string {
-	scoreLabel := ScoreInterpretation(session.Score)
-
 	var analysis string
+
+	// Score-based messages as per feedback - NO confirmation message here
+	// Confirmation will be shown as separate message after domain card
 	switch {
 	case session.Score >= 80:
-		analysis = fmt.Sprintf("✅ Great news! Your domain **%s** has an excellent reputation score of **%d/100**. Your email infrastructure looks solid and you're ready for warmup.", session.Domain, session.Score)
-	case session.Score >= 60:
-		analysis = fmt.Sprintf("👍 Your domain **%s** has a good reputation score of **%d/100**. There are minor issues, but you can proceed with warmup.", session.Domain, session.Score)
-	case session.Score >= 40:
-		analysis = fmt.Sprintf("⚠️ Your domain **%s** has a medium reputation score of **%d/100**. There are some concerns, but warmup is still possible with caution.", session.Domain, session.Score)
+		analysis = "✅ **Excellent!** Your domain is in strong shape, but a warm-up is still recommended to avoid sudden volume spikes."
+	case session.Score >= 50:
+		analysis = "👍 Your domain looks decent, but gradual warm-up will significantly improve inbox placement."
 	default:
-		analysis = fmt.Sprintf("⚠️ Your domain **%s** has a low reputation score of **%d/100**. We recommend fixing the issues shown above, but you can still proceed with warmup.", session.Domain, session.Score)
+		analysis = "⚠️ Your domain needs careful warming to build trust with mailbox providers. We'll guide you step-by-step."
 	}
 
-	// Always show warmup option for non-rejected domains
-	analysis += "\n\nWould you like me to create a warmup plan for you?"
-
-	_ = scoreLabel // used in AI version
 	return analysis
 }
 
