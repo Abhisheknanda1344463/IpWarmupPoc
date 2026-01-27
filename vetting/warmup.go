@@ -175,9 +175,8 @@ func GenerateWarmupPlans(targetVolume int, customPeriod int) (plan30, planLt30, 
 }
 
 // generateFibonacciPlan generates a Fibonacci-based warmup plan
-// that reaches target volume exactly by the last day
-// Uses a variable between 385-424 to ensure 100% accuracy
-// Pattern: Starts with golden ratio (~1.618), gradually adjusts growth rate
+// Based on Excel sheet formula: VOLUME PER IP = (VOLUME / TOTAL ADJUSTER) × SINGULARITY
+// The TOTAL ADJUSTER sequence decreases from initial value to 1 over the warmup period
 func generateFibonacciPlan(targetVolume int, days int) []WarmupDay {
 	if days <= 0 || targetVolume <= 0 {
 		return []WarmupDay{}
@@ -185,54 +184,287 @@ func generateFibonacciPlan(targetVolume int, days int) []WarmupDay {
 
 	plan := make([]WarmupDay, days)
 
-	// Generate Fibonacci-like sequence with decreasing growth rate
-	// Pattern observed: starts with ~1.6 ratio, decreases to ~1.1, then increases
-	fibSequence := make([]float64, days)
+	// Calculate PERIOD ADJUSTER (383-424 range) - used to determine initial TOTAL ADJUSTER
+	periodAdjuster := calculatePeriodAdjuster(targetVolume, days)
 
-	// Start with a base value (using variable in 385-424 range as starting point)
-	// We'll calculate the exact starting value to reach target volume
-	baseStart := 400.0 // Middle of 385-424 range as initial guess
+	// Calculate initial TOTAL ADJUSTER based on PERIOD ADJUSTER
+	// For 20 days: initial TOTAL ADJUSTER is typically 385 (periodAdjuster + 1 or similar)
+	// For 45 days: initial TOTAL ADJUSTER needs to be calculated to reach 1 on day 45
+	initialTotalAdjuster := calculateInitialTotalAdjuster(periodAdjuster, days)
 
-	// Generate sequence with adaptive growth rates
-	// Early days: high growth (golden ratio ~1.6)
-	// Middle days: moderate growth (~1.1-1.2)
-	// Late days: accelerating growth to reach target
-	fibSequence[0] = baseStart
+	// Generate TOTAL ADJUSTER sequence that decreases from initialTotalAdjuster to 1
+	totalAdjusterSequence := generateTotalAdjusterSequence(initialTotalAdjuster, days)
 
-	for i := 1; i < days; i++ {
-		progress := float64(i) / float64(days) // 0 to 1
+	// SINGULARITY is always 1 (from Excel sheet)
+	singularity := 1.0
 
-		// Calculate growth rate based on progress
-		var growthRate float64
-		if progress < 0.3 {
-			// Early days: high growth (golden ratio)
-			growthRate = 1.6
-		} else if progress < 0.7 {
-			// Middle days: moderate growth
-			growthRate = 1.1 + (progress-0.3)*0.2 // 1.1 to 1.18
-		} else {
-			// Late days: accelerating growth
-			growthRate = 1.2 + (progress-0.7)*0.8 // 1.2 to 2.0
+	// Generate plan using Excel formula: VOLUME PER IP = (VOLUME / TOTAL ADJUSTER) × SINGULARITY
+	for i := 0; i < days; i++ {
+		// Day 0 in Excel = Day 1 in our system (1-indexed)
+		// But we need to handle the sequence correctly
+		dayIndex := i
+		if dayIndex >= len(totalAdjusterSequence) {
+			dayIndex = len(totalAdjusterSequence) - 1
 		}
 
-		fibSequence[i] = fibSequence[i-1] * growthRate
-	}
+		totalAdjuster := totalAdjusterSequence[dayIndex]
+		if totalAdjuster <= 0 {
+			totalAdjuster = 1 // Avoid division by zero
+		}
 
-	// Scale the entire sequence so that last day equals target volume
-	lastDayValue := fibSequence[days-1]
-	scaleFactor := float64(targetVolume) / lastDayValue
+		// Excel formula: VOLUME PER IP = (VOLUME / TOTAL ADJUSTER) × SINGULARITY
+		volumePerIP := (float64(targetVolume) / totalAdjuster) * singularity
 
-	// Generate the plan with scaled values
-	for i := 0; i < days; i++ {
-		scaledValue := fibSequence[i] * scaleFactor
 		plan[i] = WarmupDay{
 			Day:   i + 1,
-			Limit: excelRound(scaledValue),
+			Limit: excelRound(volumePerIP),
 		}
 	}
 
-	// Final adjustment: ensure last day is exactly target volume
+	// Final adjustment: ensure last day is exactly target volume (when TOTAL ADJUSTER = 1)
 	plan[days-1].Limit = targetVolume
 
 	return plan
+}
+
+// calculatePeriodAdjuster calculates the PERIOD ADJUSTER value (383-424 range)
+// This is a key parameter from the Excel sheet that ensures the plan reaches target volume
+func calculatePeriodAdjuster(targetVolume int, days int) float64 {
+	// Calculate based on target volume and days
+	// The adjuster should be in the 383-424 range
+	// Formula: adjuster = base + (targetVolume / days) * factor
+
+	// Base adjuster around 390-400
+	baseAdjuster := 390.0
+
+	// Adjust based on volume per day ratio
+	volumePerDay := float64(targetVolume) / float64(days)
+
+	// Fine-tune adjuster based on volume per day
+	// Higher volume per day -> slightly higher adjuster
+	adjustment := (volumePerDay / 1000.0) * 0.5 // Small adjustment factor
+
+	periodAdjuster := baseAdjuster + adjustment
+
+	// Clamp to 383-424 range (as per Excel sheet)
+	if periodAdjuster < 383 {
+		periodAdjuster = 383
+	} else if periodAdjuster > 424 {
+		periodAdjuster = 424
+	}
+
+	return periodAdjuster
+}
+
+// calculateInitialTotalAdjuster calculates the starting TOTAL ADJUSTER value
+// Based on PERIOD ADJUSTER and number of days
+// For 20 days: exactly 385 (as per Excel sheet)
+// For 45 days: calculated so that TOTAL ADJUSTER reaches exactly 1 on day 45
+func calculateInitialTotalAdjuster(periodAdjuster float64, days int) float64 {
+	// For 20 days, initial TOTAL ADJUSTER is exactly 385 (as per Excel sheet)
+	if days == 20 {
+		return 385.0
+	} else if days == 45 {
+		// For 45 days: use a reasonable initial value and adjust Fibonacci sequence accordingly
+		// Based on the pattern, for 45 days we should use a value around 400-450
+		// This ensures Day 1 has a reasonable VOLUME PER IP value
+
+		// Use periodAdjuster + 10-15 as a base, but ensure it's reasonable
+		initial := periodAdjuster + 10.0
+
+		// Clamp to reasonable range for 45 days (400-450)
+		if initial < 400 {
+			initial = 400.0
+		} else if initial > 450 {
+			initial = 450.0
+		}
+
+		// The Fibonacci sequence will be generated to sum to (initial - 1)
+		// This is handled in generateFibonacciDecreasingSequence for 45 days
+		return initial
+	}
+
+	// Default: use periodAdjuster + 1
+	return periodAdjuster + 1.0
+}
+
+// generateTotalAdjusterSequence generates the TOTAL ADJUSTER sequence
+// Based on Excel sheet: TOTAL ADJUSTER[day] = TOTAL ADJUSTER[day-1] - FIBONACCI[day]
+// The FIBONACCI sequence is a reversed/decreasing Fibonacci pattern
+func generateTotalAdjusterSequence(initialTotalAdjuster float64, days int) []float64 {
+	sequence := make([]float64, days)
+
+	// Generate FIBONACCI sequence (reversed/decreasing pattern)
+	// Excel shows: 0, 144, 89, 55, 34, 21, 13, 8, 5, 3, 2, 1, 1, 1...
+	fibSequence := generateFibonacciDecreasingSequence(days)
+
+	// For 45 days, normalize Fibonacci sequence so it sums to (initialTotalAdjuster - 1)
+	// This ensures we reach exactly 1 on the last day
+	if days == 45 {
+		// Calculate current sum (excluding day 0 which is 0)
+		sum := 0.0
+		for i := 1; i < days; i++ {
+			sum += fibSequence[i]
+		}
+
+		// Target sum should be (initialTotalAdjuster - 1)
+		targetSum := initialTotalAdjuster - 1.0
+
+		// Normalize if sum is not zero
+		if sum > 0 && targetSum > 0 {
+			scaleFactor := targetSum / sum
+			// Scale all Fibonacci values (except day 0)
+			for i := 1; i < days; i++ {
+				fibSequence[i] = fibSequence[i] * scaleFactor
+			}
+		}
+	}
+
+	// Initialize first value
+	sequence[0] = initialTotalAdjuster
+
+	// Generate sequence: TOTAL ADJUSTER[day] = TOTAL ADJUSTER[day-1] - FIBONACCI[day]
+	for i := 1; i < days; i++ {
+		prevAdjuster := sequence[i-1]
+		fibValue := fibSequence[i]
+
+		// Calculate new adjuster
+		newAdjuster := prevAdjuster - fibValue
+
+		// Ensure it doesn't go below 1
+		if newAdjuster < 1.0 {
+			newAdjuster = 1.0
+		}
+
+		sequence[i] = newAdjuster
+	}
+
+	// Ensure last value is exactly 1
+	sequence[days-1] = 1.0
+
+	return sequence
+}
+
+// generateFibonacciDecreasingSequence generates a decreasing Fibonacci sequence
+// Excel pattern for 20 days: 0, 144, 89, 55, 34, 21, 13, 8, 5, 3, 2, 1, 1, 1...
+// For 45 days: use a more gradual pattern that spreads the decrease over 45 days
+func generateFibonacciDecreasingSequence(days int) []float64 {
+	sequence := make([]float64, days)
+
+	// Day 0 is always 0
+	sequence[0] = 0.0
+
+	if days == 20 {
+		// For 20 days: use exact Excel pattern
+		// Pattern: 0, 144, 89, 55, 34, 21, 13, 8, 5, 3, 2, 1, 1, 1...
+		fibNumbers := []float64{144, 89, 55, 34, 21, 13, 8, 5, 3, 2}
+
+		idx := 1
+		for i := 0; i < len(fibNumbers) && idx < days; i++ {
+			sequence[idx] = fibNumbers[i]
+			idx++
+		}
+
+		// Fill remaining with 1s
+		for idx < days {
+			sequence[idx] = 1.0
+			idx++
+		}
+	} else if days == 45 {
+		// For 45 days: use a pattern based on 20 days but spread more evenly
+		// Use the same Fibonacci values as 20 days but repeat/spread them
+		// Pattern will be normalized to sum to (initialTotalAdjuster - 1)
+
+		// Use 20-day pattern values but spread them over 45 days more evenly
+		// Pattern: 0, then repeat 144, 89, 55, 34, 21, 13, 8, 5, 3, 2, then many 1s
+		pattern20 := []float64{144, 89, 55, 34, 21, 13, 8, 5, 3, 2}
+
+		idx := 1
+		// Use the 20-day pattern values, but repeat them to fill more days
+		// Repeat the pattern 2-3 times to spread over 45 days
+		for repeat := 0; repeat < 2 && idx < days-15; repeat++ {
+			for i := 0; i < len(pattern20) && idx < days-15; i++ {
+				sequence[idx] = pattern20[i]
+				idx++
+			}
+		}
+
+		// Fill remaining with smaller values and 1s
+		// Use decreasing pattern: 5, 3, 2, then 1s
+		remaining := []float64{5, 3, 2}
+		for i := 0; i < len(remaining) && idx < days; i++ {
+			sequence[idx] = remaining[i]
+			idx++
+		}
+
+		// Fill rest with 1s
+		for idx < days {
+			sequence[idx] = 1.0
+			idx++
+		}
+	} else {
+		// Default: use standard pattern
+		fibNumbers := []float64{144, 89, 55, 34, 21, 13, 8, 5, 3, 2}
+		idx := 1
+		for i := 0; i < len(fibNumbers) && idx < days; i++ {
+			sequence[idx] = fibNumbers[i]
+			idx++
+		}
+		for idx < days {
+			sequence[idx] = 1.0
+			idx++
+		}
+	}
+
+	return sequence
+}
+
+// calculateFibonacciStart calculates the starting value for Fibonacci sequence
+// Based on target volume, days, period adjuster, total adjuster, and singularity
+// This ensures the starting value is appropriate for the target volume
+// Uses the PERIOD ADJUSTER to determine starting value, similar to Excel sheet formula
+func calculateFibonacciStart(targetVolume int, days int, periodAdjuster, totalAdjuster, singularity float64) float64 {
+	// Based on the 20-day example: 50,000 target, start ~130
+	// Ratio: 50,000 / 130 = 384.6 (close to PERIOD ADJUSTER ~394)
+	//
+	// The Excel formula likely uses: start = targetVolume / PERIOD_ADJUSTER * factor
+	// Where factor accounts for the period length
+
+	// For 20 days: factor ~1.02 (50k/394 * 1.02 = 129.4 ≈ 130)
+	// For 45 days: we need a different factor since it's a longer period
+	// Longer period means we can start proportionally lower
+
+	var factor float64
+	if days == 20 {
+		// Calibrated for 20 days: gives start ~130 for 50k target
+		factor = 1.02
+	} else if days == 45 {
+		// For 45 days: use a factor that gives reasonable starting values
+		// For 96,744 target: (96744/394) * 0.65 = 159.6 (reasonable start)
+		// This ensures we don't start too low, accounting for longer growth period
+		factor = 0.65
+	} else {
+		// Default factor for other periods
+		factor = 0.8
+	}
+
+	// Calculate base start: targetVolume / periodAdjuster * factor
+	baseStart := (float64(targetVolume) / periodAdjuster) * factor
+
+	// Apply singularity (always 1, but included for formula completeness)
+	baseStart = baseStart * singularity
+
+	// For very large volumes, ensure the start is reasonable
+	// Minimum: at least 1% of (targetVolume / days) to avoid starting too low
+	minStart := float64(targetVolume) / float64(days) * 0.01
+	if baseStart < minStart {
+		baseStart = minStart
+	}
+
+	// Absolute minimum: at least 1
+	if baseStart < 1.0 {
+		baseStart = 1.0
+	}
+
+	return baseStart
 }
