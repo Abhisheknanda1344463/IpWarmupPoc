@@ -132,9 +132,9 @@ type MXBlacklistResult struct {
 
 var domainRBLs = []string{
 	// CRITICAL - Auto Reject
-	"multi.surbl.org",           // SURBL
-	"ivmuri.invaluement.com",    // ivmURL / Invaluement
-	
+	"multi.surbl.org",        // SURBL
+	"ivmuri.invaluement.com", // ivmURL / Invaluement
+
 	// Other domain-based RBLs
 	"uribl.spameatingmonkey.net",
 	"uribl.blacklist.woody.ch",
@@ -143,12 +143,12 @@ var domainRBLs = []string{
 
 func checkDomainRBL(domain string) []BlacklistEntry {
 	var results []BlacklistEntry
-	
+
 	log.Printf("[RBL] Checking domain %s against %d domain RBLs", domain, len(domainRBLs))
 
 	for _, rbl := range domainRBLs {
 		query := domain + "." + rbl
-		
+
 		// Use custom resolver with timeout
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		resolver := &net.Resolver{
@@ -158,10 +158,10 @@ func checkDomainRBL(domain string) []BlacklistEntry {
 				return d.DialContext(ctx, "udp", "8.8.8.8:53")
 			},
 		}
-		
+
 		addrs, err := resolver.LookupHost(ctx, query)
 		cancel()
-		
+
 		if err == nil && len(addrs) > 0 {
 			// Verify it's a valid RBL response (should be 127.0.0.x)
 			isValidRBLResponse := false
@@ -171,7 +171,7 @@ func checkDomainRBL(domain string) []BlacklistEntry {
 					break
 				}
 			}
-			
+
 			if isValidRBLResponse {
 				log.Printf("[RBL] ⚠️ Domain LISTED on %s: %s (response: %v)", rbl, query, addrs)
 				results = append(results, BlacklistEntry{
@@ -189,23 +189,26 @@ func checkDomainRBL(domain string) []BlacklistEntry {
 
 var ipRBLs = []string{
 	// CRITICAL - Auto Reject
-	"zen.spamhaus.org",          // Spamhaus (includes SBL, XBL, PBL)
-	"combined.abuse.ch",         // Abusix alternative (abuse.ch)
-	"dnsbl.abuseat.org",         // Abusix CBL
-	
+	"zen.spamhaus.org",  // Spamhaus (includes SBL, XBL, PBL)
+	"combined.abuse.ch", // Abusix alternative (abuse.ch)
+	"dnsbl.abuseat.org", // Abusix CBL
+
 	// Penalty-based
-	"bl.spamcop.net",            // Spamcop (-10)
-	"b.barracudacentral.org",    // Barracuda (-10)
-	
+	"bl.spamcop.net",         // Spamcop (-10)
+	"b.barracudacentral.org", // Barracuda (-10)
+
 	// UCEProtect Levels
-	"dnsbl-1.uceprotect.net",    // UCEProtect Level 1 (-5)
-	"dnsbl-2.uceprotect.net",    // UCEProtect Level 2 (-10)
-	"dnsbl-3.uceprotect.net",    // UCEProtect Level 3 (-20)
-	
+	"dnsbl-1.uceprotect.net", // UCEProtect Level 1 (-5)
+	"dnsbl-2.uceprotect.net", // UCEProtect Level 2 (-10)
+	"dnsbl-3.uceprotect.net", // UCEProtect Level 3 (-20)
+
 	// Other IP-based RBLs
 	"bl.mailspike.net",
 	"z.mailspike.net",
-	"hostkarma.junkemailfilter.com",
+	// NOTE: hostkarma.junkemailfilter.com is a combined informational list, not a strict blacklist
+	// It uses multiple return codes (127.0.0.1=whitelist, 127.0.0.2=blacklist, 127.0.0.3=yellowlist)
+	// We only check strict blacklists, so this is excluded to avoid false positives
+	// "hostkarma.junkemailfilter.com",
 	"psbl.surriel.com",
 	"dnsbl.sorbs.net",
 }
@@ -224,20 +227,20 @@ func checkIPRBL(domain string) []BlacklistEntry {
 		log.Printf("[RBL] Could not resolve IP for domain: %s", domain)
 		return nil
 	}
-	
+
 	rev := reverseIP(ip)
 	if rev == "" {
 		log.Printf("[RBL] Could not reverse IP: %s for domain: %s", ip, domain)
 		return nil
 	}
-	
+
 	log.Printf("[RBL] Checking IP %s (reversed: %s) for domain: %s", ip, rev, domain)
 
 	var results []BlacklistEntry
 
 	for _, rbl := range ipRBLs {
 		query := rev + "." + rbl
-		
+
 		// Use custom resolver with timeout to avoid cloud DNS issues
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		resolver := &net.Resolver{
@@ -248,10 +251,10 @@ func checkIPRBL(domain string) []BlacklistEntry {
 				return d.DialContext(ctx, "udp", "8.8.8.8:53")
 			},
 		}
-		
+
 		addrs, err := resolver.LookupHost(ctx, query)
 		cancel()
-		
+
 		if err == nil && len(addrs) > 0 {
 			// Verify it's a valid RBL response (should be 127.0.0.x)
 			// False positives can occur if DNS returns unexpected results
@@ -262,7 +265,7 @@ func checkIPRBL(domain string) []BlacklistEntry {
 					break
 				}
 			}
-			
+
 			if isValidRBLResponse {
 				log.Printf("[RBL] ⚠️ LISTED on %s: %s (response: %v)", rbl, query, addrs)
 				results = append(results, BlacklistEntry{
@@ -322,12 +325,17 @@ func FetchMXToolboxBlacklist(domain string) (*MXBlacklistResult, error) {
 
 	var entries []BlacklistEntry
 	for _, f := range raw.Failed {
+		log.Printf("[MXToolbox] Blacklist found for %s: %s (Info: %s, Reason: %s)", domain, f.Name, f.Info, f.Description)
 		entries = append(entries, BlacklistEntry{
 			Source: f.Name,
 			Listed: true,
 			Info:   f.Info,
 			Reason: f.Description,
 		})
+	}
+
+	if len(entries) == 0 {
+		log.Printf("[MXToolbox] No blacklists found for %s (MxRep: %d)", domain, raw.MxRep)
 	}
 
 	return &MXBlacklistResult{

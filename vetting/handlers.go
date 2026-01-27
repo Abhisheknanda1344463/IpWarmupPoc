@@ -181,9 +181,14 @@ func VetHandler(w http.ResponseWriter, r *http.Request) {
 
 	g, _ := errgroup.WithContext(ctx)
 
-	// MXToolbox - check exact domain
+	// MXToolbox - check parent domain for subdomains (blacklists typically list parent domains)
+	mxToolboxDomain := domain
+	if isSubdom {
+		mxToolboxDomain = parentDomain
+		log.Printf("🔍 MXToolbox: Checking parent domain %s for subdomain %s", parentDomain, domain)
+	}
 	g.Go(func() error {
-		res, err := FetchMXToolboxBlacklist(domain)
+		res, err := FetchMXToolboxBlacklist(mxToolboxDomain)
 		if err == nil && res != nil {
 			mxRes = res
 		}

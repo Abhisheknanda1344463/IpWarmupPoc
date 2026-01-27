@@ -38,12 +38,12 @@ type ChatResponse struct {
 	SessionID       string `json:"session_id"`
 	Reply           string `json:"reply"`
 	Stage           string `json:"stage"`
-	WaitingFor      string `json:"waiting_for,omitempty"`       // what input we expect next
-	DomainData      any    `json:"domain_data,omitempty"`       // vetting result if available
-	WarmupPlan      any    `json:"warmup_plan,omitempty"`       // warmup plan if generated
-	AllowedDays     []int  `json:"allowed_days,omitempty"`      // allowed warmup days based on score
-	FollowupMessage string `json:"followup_message,omitempty"`  // separate message to show after domain card
-	CanProceed      bool   `json:"can_proceed"`                 // can proceed with warmup?
+	WaitingFor      string `json:"waiting_for,omitempty"`      // what input we expect next
+	DomainData      any    `json:"domain_data,omitempty"`      // vetting result if available
+	WarmupPlan      any    `json:"warmup_plan,omitempty"`      // warmup plan if generated
+	AllowedDays     []int  `json:"allowed_days,omitempty"`     // allowed warmup days based on score
+	FollowupMessage string `json:"followup_message,omitempty"` // separate message to show after domain card
+	CanProceed      bool   `json:"can_proceed"`                // can proceed with warmup?
 	Error           string `json:"error,omitempty"`
 }
 
@@ -789,11 +789,13 @@ func GetAllowedWarmupDays(score int, targetVolume int) []int {
 		return []int{30, 45, 60}
 	case score >= 76 && score <= 100:
 		// High score: depends on target volume
-		if targetVolume >= 100000 {
-			// High volume: 30, 45, 60 days
+		// If target volume is MORE than 100,000: 30, 45, 60 days
+		// If target volume is LESS than or equal to 100,000: 20, 30, 45, 60 days
+		if targetVolume > 100000 {
+			// High volume (> 100,000): 30, 45, 60 days
 			return []int{30, 45, 60}
 		}
-		// Low volume: 20, 30, 45, 60 days
+		// Low volume (<= 100,000): 20, 30, 45, 60 days
 		return []int{20, 30, 45, 60}
 	default:
 		// Default fallback

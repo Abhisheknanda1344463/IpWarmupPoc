@@ -861,6 +861,51 @@
       scrollToBottom();
     }
 
+    // Helper function to format blacklist names
+    function formatBlacklistName(source) {
+      if (!source) return 'Unknown';
+      
+      // Map common blacklist source names to readable format
+      const nameMap = {
+        'zen.spamhaus.org': 'Spamhaus',
+        'multi.surbl.org': 'SURBL',
+        'ivmuri.invaluement.com': 'Invaluement/ivmURL',
+        'combined.abuse.ch': 'Abusix',
+        'dnsbl.abuseat.org': 'Abusix CBL',
+        'bl.spamcop.net': 'SpamCop',
+        'b.barracudacentral.org': 'Barracuda',
+        'dnsbl-1.uceprotect.net': 'UCEProtect Level 1',
+        'dnsbl-2.uceprotect.net': 'UCEProtect Level 2',
+        'dnsbl-3.uceprotect.net': 'UCEProtect Level 3',
+      };
+      
+      // Check exact match first
+      if (nameMap[source]) {
+        return nameMap[source];
+      }
+      
+      // Check partial matches
+      const sourceLower = source.toLowerCase();
+      if (sourceLower.includes('spamhaus')) return 'Spamhaus';
+      if (sourceLower.includes('surbl')) return 'SURBL';
+      if (sourceLower.includes('invaluement') || sourceLower.includes('ivmurl')) return 'Invaluement/ivmURL';
+      if (sourceLower.includes('abusix') || sourceLower.includes('abuse.ch') || sourceLower.includes('abuseat')) return 'Abusix';
+      if (sourceLower.includes('spamcop')) return 'SpamCop';
+      if (sourceLower.includes('barracuda')) return 'Barracuda';
+      if (sourceLower.includes('uceprotect')) {
+        if (sourceLower.includes('dnsbl-3') || sourceLower.includes('level3')) return 'UCEProtect Level 3';
+        if (sourceLower.includes('dnsbl-2') || sourceLower.includes('level2')) return 'UCEProtect Level 2';
+        return 'UCEProtect Level 1';
+      }
+      
+      // Return cleaned source name (remove common prefixes/suffixes)
+      return source
+        .replace(/^https?:\/\//, '')
+        .replace(/^www\./, '')
+        .split('/')[0]
+        .split('?')[0];
+    }
+
     // Add domain card with score circle
     function addDomainCard(domainData) {
       const summary = domainData.summary || {};
@@ -943,13 +988,29 @@
       // Check Blacklists
       const blacklistHits = domainData.blacklist_hits || [];
       if (blacklistHits.length > 0) {
-        const blacklistNames = blacklistHits.map(b => b.blacklist || b.name || 'Unknown').join(', ');
-        warnings.push({
-          type: 'critical',
-          icon: '⚠️',
-          title: `Blacklisted (${blacklistHits.length})`,
-          text: `Domain found on: ${blacklistNames}. Request delisting to improve reputation.`
-        });
+        // Backend sends 'source' field in BlacklistEntry
+        // Filter only listed entries and get their source names
+        const listedBlacklists = blacklistHits.filter(b => b.listed === true);
+        if (listedBlacklists.length > 0) {
+          const blacklistNames = listedBlacklists
+            .map(b => {
+              // Backend sends 'source' field, format it nicely
+              const source = b.source || b.blacklist || b.name || 'Unknown';
+              // Clean up source name (remove domain suffixes, make readable)
+              return formatBlacklistName(source);
+            })
+            .filter(name => name && name !== 'Unknown')
+            .join(', ');
+          
+          if (blacklistNames) {
+            warnings.push({
+              type: 'critical',
+              icon: '⚠️',
+              title: `Blacklisted (${listedBlacklists.length})`,
+              text: `Domain found on: ${blacklistNames}. Request delisting to improve reputation.`
+            });
+          }
+        }
       }
 
       // COMMENTED OUT per Naksh - CAPTCHA detection might not be accurate

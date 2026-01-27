@@ -2,6 +2,7 @@ package vetting
 
 import (
 	"fmt"
+	"log"
 	"strings"
 )
 
@@ -56,9 +57,11 @@ func AnalyzeBlacklists(entries []BlacklistEntry) BlacklistAnalysis {
 		}
 
 		sourceLower := strings.ToLower(entry.Source)
+		log.Printf("[BlacklistAnalysis] Processing blacklist entry: %s (lowercase: %s)", entry.Source, sourceLower)
 
 		// Check for critical blacklists
 		if isCriticalBlacklist(sourceLower) {
+			log.Printf("[BlacklistAnalysis] ⚠️ CRITICAL blacklist detected: %s", entry.Source)
 			result.IsRejected = true
 			result.CriticalHits = append(result.CriticalHits, entry.Source)
 			continue
@@ -68,6 +71,7 @@ func AnalyzeBlacklists(entries []BlacklistEntry) BlacklistAnalysis {
 		if strings.Contains(sourceLower, "uceprotect") {
 			level := getUCEProtectLevel(sourceLower)
 			penalty := UCEProtectLevelPenalties[level]
+			log.Printf("[BlacklistAnalysis] UCEProtect Level %d detected: %s (penalty: -%d)", level, entry.Source, penalty)
 			result.TotalPenalty += penalty
 			result.PenaltyDetails = append(result.PenaltyDetails,
 				fmt.Sprintf("%s (Level %d: -%d)", entry.Source, level, penalty))
@@ -76,6 +80,11 @@ func AnalyzeBlacklists(entries []BlacklistEntry) BlacklistAnalysis {
 
 		// Check for other known blacklists
 		penalty := getBlacklistPenalty(sourceLower)
+		if penalty == 10 && !strings.Contains(sourceLower, "uceprotect") {
+			log.Printf("[BlacklistAnalysis] ⚠️ Unknown blacklist (default penalty -10): %s", entry.Source)
+		} else {
+			log.Printf("[BlacklistAnalysis] Known blacklist: %s (penalty: -%d)", entry.Source, penalty)
+		}
 		result.TotalPenalty += penalty
 		result.PenaltyDetails = append(result.PenaltyDetails,
 			fmt.Sprintf("%s (-%d)", entry.Source, penalty))
