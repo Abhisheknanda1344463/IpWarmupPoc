@@ -835,6 +835,30 @@ func handleFollowup(session *Session, userMessage string) ChatResponse {
 		return handleNewDomainRequest(session, userMessage, newDomain)
 	}
 
+	// When plan is generated and we asked "Shall I proceed?", handle Yes/No
+	if session.Stage == "plan_generated" {
+		lower := strings.TrimSpace(strings.ToLower(userMessage))
+		yesWords := []string{"yes", "yeah", "yep", "ok", "okay", "sure", "proceed", "please"}
+		noWords := []string{"no", "nope", "cancel", "don't", "dont"}
+		for _, w := range yesWords {
+			if lower == w || lower == w+"." || strings.HasPrefix(lower, w+" ") {
+				session.Stage = "plan_saved"
+				return ChatResponse{
+					SessionID:  session.ID,
+					Reply:      "Thank you, warmup plan got saved.",
+					Stage:      "plan_saved",
+					WaitingFor: "freetext",
+					CanProceed: true,
+				}
+			}
+		}
+		for _, w := range noWords {
+			if lower == w || lower == w+"." || strings.HasPrefix(lower, w+" ") {
+				return goBackToDomain(session)
+			}
+		}
+	}
+
 	// Check user intent for navigation
 	intent := DetectUserIntent(userMessage)
 

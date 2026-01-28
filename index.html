@@ -821,22 +821,9 @@
           // No pre-defined domains - let user enter manually
           // showQuickActions(['maropost.com', 'google.com']);
         } else if (data.waiting_for === 'freetext' && data.stage === 'plan_generated') {
-          // After warmup plan is generated, show "change days" options
-          if (data.allowed_days && data.allowed_days.length > 0) {
-            // Show message first: "Would you like to change your days?"
-            addMessage('Would you like to change your days?', 'bot');
-            // Then show allowed days options
-            const currentDays = data.current_days || 0;
-            const dayOptions = data.allowed_days
-              .filter(d => d !== currentDays)
-              .map(d => d + ' days');
-            showQuickActions(dayOptions);
-            // Add message that user can change domain anytime
-            
-          } else {
-            // Fallback if allowed_days not available
-            showQuickActions(['30 days', '45 days', '60 days']);
-          }
+          // Show "Shall I proceed?" as a separate message bubble (not attached to plan)
+          addMessage("I'm ready to create your warmup plan. Shall I proceed?", 'bot');
+          showQuickActions(['Yes', 'No']);
         }
 
       } catch (error) {
