@@ -42,6 +42,7 @@ type ChatResponse struct {
 	DomainData      any    `json:"domain_data,omitempty"`      // vetting result if available
 	WarmupPlan      any    `json:"warmup_plan,omitempty"`      // warmup plan if generated
 	AllowedDays     []int  `json:"allowed_days,omitempty"`     // allowed warmup days based on score
+	CurrentDays     int    `json:"current_days,omitempty"`     // current selected warmup days
 	FollowupMessage string `json:"followup_message,omitempty"` // separate message to show after domain card
 	CanProceed      bool   `json:"can_proceed"`                // can proceed with warmup?
 	Error           string `json:"error,omitempty"`
@@ -297,14 +298,17 @@ func handleDomainInput(session *Session, userMessage string) ChatResponse {
 			// Fallback to AI-generated plan
 			plan := generateCombinedResponse(session, vettingData)
 			session.Stage = "plan_generated"
+			allowedDays := GetAllowedWarmupDays(session.Score, session.TargetVolume)
 			return ChatResponse{
-				SessionID:  session.ID,
-				Reply:      plan,
-				Stage:      session.Stage,
-				WaitingFor: "freetext",
-				DomainData: vettingData,
-				WarmupPlan: buildWarmupPlanData(session),
-				CanProceed: true,
+				SessionID:   session.ID,
+				Reply:       plan,
+				Stage:       session.Stage,
+				WaitingFor:  "freetext",
+				DomainData:  vettingData,
+				WarmupPlan:  buildWarmupPlanData(session),
+				AllowedDays: allowedDays,
+				CurrentDays: session.WarmupDays,
+				CanProceed:  true,
 			}
 		}
 
@@ -312,14 +316,19 @@ func handleDomainInput(session *Session, userMessage string) ChatResponse {
 		plan := generateCombinedResponseWithData(session, vettingData, warmupData)
 		session.Stage = "plan_generated"
 
+		// Get allowed days for "change days" options after plan generation
+		allowedDays := GetAllowedWarmupDays(session.Score, session.TargetVolume)
+
 		return ChatResponse{
-			SessionID:  session.ID,
-			Reply:      plan,
-			Stage:      session.Stage,
-			WaitingFor: "freetext",
-			DomainData: vettingData,
-			WarmupPlan: warmupData,
-			CanProceed: true,
+			SessionID:   session.ID,
+			Reply:       plan,
+			Stage:       session.Stage,
+			WaitingFor:  "freetext",
+			DomainData:  vettingData,
+			WarmupPlan:  warmupData,
+			AllowedDays: allowedDays,
+			CurrentDays: session.WarmupDays,
+			CanProceed:  true,
 		}
 	}
 
@@ -742,26 +751,32 @@ func handleConfirmSummary(session *Session, userMessage string) ChatResponse {
 		if err != nil {
 			plan := generateWarmupPlan(session)
 			session.Stage = "plan_generated"
+			allowedDays := GetAllowedWarmupDays(session.Score, session.TargetVolume)
 			return ChatResponse{
-				SessionID:  session.ID,
-				Reply:      plan,
-				Stage:      session.Stage,
-				WaitingFor: "freetext",
-				WarmupPlan: buildWarmupPlanData(session),
-				CanProceed: true,
+				SessionID:   session.ID,
+				Reply:       plan,
+				Stage:       session.Stage,
+				WaitingFor:  "freetext",
+				WarmupPlan:  buildWarmupPlanData(session),
+				AllowedDays: allowedDays,
+				CurrentDays: session.WarmupDays,
+				CanProceed:  true,
 			}
 		}
 
 		plan := formatWarmupPlanWithAI(session, warmupData)
 		session.Stage = "plan_generated"
+		allowedDays := GetAllowedWarmupDays(session.Score, session.TargetVolume)
 
 		return ChatResponse{
-			SessionID:  session.ID,
-			Reply:      plan,
-			Stage:      session.Stage,
-			WaitingFor: "freetext",
-			WarmupPlan: warmupData,
-			CanProceed: true,
+			SessionID:   session.ID,
+			Reply:       plan,
+			Stage:       session.Stage,
+			WaitingFor:  "freetext",
+			WarmupPlan:  warmupData,
+			AllowedDays: allowedDays,
+			CurrentDays: session.WarmupDays,
+			CanProceed:  true,
 		}
 	}
 
@@ -836,6 +851,67 @@ func handleFollowup(session *Session, userMessage string) ChatResponse {
 			return goBackToWarmupDays(session)
 		}
 		return goBackToDomain(session)
+	}
+
+	// If plan is already generated and user selects days (e.g. "60 days"), regenerate plan
+	if session.Stage == "plan_generated" {
+		days := extractDays(userMessage)
+		if days > 0 {
+			allowedDays := GetAllowedWarmupDays(session.Score, session.TargetVolume)
+			isAllowed := false
+			for _, d := range allowedDays {
+				if days == d {
+					isAllowed = true
+					break
+				}
+			}
+			if isAllowed && days != session.WarmupDays {
+				session.WarmupDays = days
+				targetVolume := session.TargetVolume
+				if targetVolume <= 0 {
+					targetVolume = 10000
+				}
+				warmupData, err := callWarmupAPIWithVolume(targetVolume, session.WarmupDays)
+				if err != nil {
+					plan := generateWarmupPlan(session)
+					allowedDays := GetAllowedWarmupDays(session.Score, session.TargetVolume)
+					return ChatResponse{
+						SessionID:   session.ID,
+						Reply:       plan,
+						Stage:       "plan_generated",
+						WaitingFor:  "freetext",
+						WarmupPlan:  buildWarmupPlanData(session),
+						AllowedDays: allowedDays,
+						CurrentDays: session.WarmupDays,
+						CanProceed:  true,
+					}
+				}
+				plan := formatWarmupPlanWithAI(session, warmupData)
+				allowedDays := GetAllowedWarmupDays(session.Score, session.TargetVolume)
+				return ChatResponse{
+					SessionID:   session.ID,
+					Reply:       plan,
+					Stage:       "plan_generated",
+					WaitingFor:  "freetext",
+					WarmupPlan:  warmupData,
+					AllowedDays: allowedDays,
+					CurrentDays: session.WarmupDays,
+					CanProceed:  true,
+				}
+			}
+			if !isAllowed {
+				allowedDays := GetAllowedWarmupDays(session.Score, session.TargetVolume)
+				return ChatResponse{
+					SessionID:   session.ID,
+					Reply:       fmt.Sprintf("⚠️ **%d days is not available.** Please choose from: **%s**", days, formatDaysOptions(allowedDays)),
+					Stage:       "plan_generated",
+					WaitingFor:  "freetext",
+					AllowedDays: allowedDays,
+					CurrentDays: session.WarmupDays,
+					CanProceed:  true,
+				}
+			}
+		}
 	}
 
 	// Use Gemini for general follow-up questions
